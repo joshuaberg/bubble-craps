@@ -1,0 +1,47 @@
+# Bubble Craps Machine Configuration
+
+# Trigger settings
+trigger:
+  mode: "timer"              # "timer" or "remote"
+  timer_interval_sec: 120    # seconds between rolls in timer mode
+
+# Motor settings
+motor:
+  roll_duration_min_sec: 3   # minimum motor run time
+  roll_duration_max_sec: 8   # maximum motor run time
+  park_position: 0           # motor position for capture (units TBD)
+  park_timeout_sec: 5        # max time to wait for motor to reach park position
+  park_poll_interval_sec: 0.1  # how often to poll is_at_position()
+  settling_time_sec: 2       # time to wait after park position is reached
+
+# Camera settings
+camera:
+  resolution: [1920, 1080]
+  exposure_mode: "fixed"
+  white_balance: "fixed"
+
+# Ring light settings
+ring_light:
+  gpio_pin: 18               # GPIO pin for PWM control
+  idle_brightness: 0.3
+
+# MQTT settings
+mqtt:
+  broker: "192.168.1.100"
+  port: 1883
+  client_id: "bubble-craps-01"
+  keepalive: 60
+  topics:
+    result: "bubble-craps/roll/result"
+    status: "bubble-craps/status"
+    error: "bubble-craps/roll/error"
+    command: "bubble-craps/command"
+  offline_queue:
+    max_size: 100
+    persist_file: "pending_rolls.json"
+
+# Detection settings
+detection:
+  max_retries: 2
+  calibration_file: "calibration.json"
+  position_tolerance_px: 20

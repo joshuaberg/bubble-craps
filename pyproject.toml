@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "bubble-craps"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "paho-mqtt>=1.6,<2",
+    "opencv-python-headless>=4.8",
+    "numpy>=1.24",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+pi = [
+    "picamera2>=0.3",
+    "RPi.GPIO>=0.7",
+    "gpiozero>=2.0",
+]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.scripts]
+bubble-craps = "bubble_craps.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
