@@ -85,7 +85,7 @@ def test_go_to_angle(motor: CANMotorController) -> bool:
 
     target_angle = 90.0
     print(f"Commanding go_to_angle({target_angle})...")
-    motor.go_to_angle(target_angle, speed_limit=10.0)
+    motor.go_to_angle(target_angle, speed_limit=100.0)
 
     timeout = 5.0
     poll_interval = 0.2
@@ -115,7 +115,7 @@ def test_park_at_zero(motor: CANMotorController) -> bool:
     print(f"Starting position: {start_pos:.2f} (angle: {start_pos % 360:.2f})")
 
     print("Commanding go_to_angle(0)...")
-    motor.go_to_angle(0.0, speed_limit=10.0)
+    motor.go_to_angle(0.0, speed_limit=100.0)
 
     timeout = 5.0
     deadline = time.monotonic() + timeout
@@ -172,7 +172,7 @@ def main():
     parser = argparse.ArgumentParser(description="Test motor functions for Bubble Craps")
     parser.add_argument("--channel", default="can0", help="CAN interface name (default: can0)")
     parser.add_argument("--can-id", default="0x141", help="Motor CAN ID in hex (default: 0x141)")
-    parser.add_argument("--rpm", type=float, default=40.0, help="RPM for speed tests (default: 40)")
+    parser.add_argument("--rpm", type=float, default=550.0, help="RPM for speed tests (default: 40)")
     args = parser.parse_args()
 
     can_id = int(args.can_id, 16)
