@@ -16,12 +16,12 @@ class MotorController(ABC):
         """Stop the motor immediately."""
 
     @abstractmethod
-    def go_to_position(self, position: float, speed_limit: float = 44.0) -> None:
+    def go_to_position(self, position: float, speed_limit: float = 10.0) -> None:
         """Command the motor to move to an absolute multi-turn position (degrees).
         Non-blocking — call is_at_position() to poll for completion."""
 
     @abstractmethod
-    def go_to_angle(self, angle: float, speed_limit: float = 44.0) -> None:
+    def go_to_angle(self, angle: float, speed_limit: float = 10.0) -> None:
         """Command the motor to move to the nearest equivalent angle (0-360).
         Calculates the closest absolute target based on current position.
         Non-blocking — call is_at_position() to poll for completion."""
@@ -68,7 +68,7 @@ class CANMotorController(MotorController):
             logger.error("Failed to turn on motor")
 
     def start(self, rpm: float = 40.0) -> None:
-        cdps = int(rpm * 10 * 360 / 60 * 100)
+        cdps = int(rpm * 360 / 60 * 100)
         data = [
             0xA2, 0x00, 0x00, 0x00,
             cdps & 0xFF,
@@ -88,10 +88,10 @@ class CANMotorController(MotorController):
             self._running = False
             logger.info("Motor stopped")
 
-    def go_to_position(self, position: float, speed_limit: float = 44.0) -> None:
+    def go_to_position(self, position: float, speed_limit: float = 10.0) -> None:
         self._go_to_target(position, speed_limit)
 
-    def go_to_angle(self, angle: float, speed_limit: float = 44.0) -> None:
+    def go_to_angle(self, angle: float, speed_limit: float = 10.0) -> None:
         current = self.get_position()
         if current is None:
             logger.error("Cannot go_to_angle: failed to read current position")
@@ -121,7 +121,7 @@ class CANMotorController(MotorController):
         )
         if raw >= 0x80000000000000:
             raw -= 0x100000000000000
-        return raw * 0.01 / 10
+        return raw * 0.01
 
     def is_at_position(self) -> bool:
         if self._target_position is None:
@@ -147,8 +147,8 @@ class CANMotorController(MotorController):
 
     def _go_to_target(self, position: float, speed_limit: float) -> None:
         """Send the absolute position command to the motor."""
-        speed_raw = int(speed_limit * 360 * 10 / 60)
-        angle_raw = int(position * 10 * 100)
+        speed_raw = int(speed_limit * 360 / 60)
+        angle_raw = int(position * 100)
         data = [
             0xA4, 0x00,
             speed_raw & 0xFF,
@@ -234,12 +234,12 @@ class MockMotorController(MotorController):
         logger.info("MockMotor: stop")
         self._running = False
 
-    def go_to_position(self, position: float, speed_limit: float = 44.0) -> None:
+    def go_to_position(self, position: float, speed_limit: float = 10.0) -> None:
         logger.info("MockMotor: go_to_position (position=%.2f)", position)
         self._running = False
         self._at_position = True
 
-    def go_to_angle(self, angle: float, speed_limit: float = 44.0) -> None:
+    def go_to_angle(self, angle: float, speed_limit: float = 10.0) -> None:
         logger.info("MockMotor: go_to_angle (angle=%.2f)", angle)
         self._running = False
         self._at_position = True

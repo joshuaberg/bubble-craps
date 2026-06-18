@@ -85,7 +85,7 @@ def test_go_to_angle(motor: CANMotorController) -> bool:
 
     target_angle = 90.0
     print(f"Commanding go_to_angle({target_angle})...")
-    motor.go_to_angle(target_angle, speed_limit=20.0)
+    motor.go_to_angle(target_angle, speed_limit=10.0)
 
     timeout = 5.0
     poll_interval = 0.2
@@ -115,7 +115,7 @@ def test_park_at_zero(motor: CANMotorController) -> bool:
     print(f"Starting position: {start_pos:.2f} (angle: {start_pos % 360:.2f})")
 
     print("Commanding go_to_angle(0)...")
-    motor.go_to_angle(0.0, speed_limit=20.0)
+    motor.go_to_angle(0.0, speed_limit=10.0)
 
     timeout = 5.0
     deadline = time.monotonic() + timeout
@@ -196,8 +196,11 @@ def main():
 
         if results["connection"]:
             results["speed_control"] = test_speed_control(motor, args.rpm)
+            time.sleep(1)
             results["go_to_angle"] = test_go_to_angle(motor)
+            time.sleep(1)
             results["park_at_zero"] = test_park_at_zero(motor)
+            time.sleep(1)
             results["full_roll_cycle"] = test_full_roll_cycle(motor, args.rpm)
 
     except KeyboardInterrupt:
