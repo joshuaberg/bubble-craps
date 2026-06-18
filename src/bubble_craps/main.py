@@ -8,7 +8,7 @@ from pathlib import Path
 from bubble_craps.camera import MockCamera, PiCamera
 from bubble_craps.config import load_config
 from bubble_craps.detector import DiceDetector
-from bubble_craps.motor import MockMotorController
+from bubble_craps.motor import CANMotorController, MockMotorController
 from bubble_craps.mqtt_client import MqttClient
 from bubble_craps.ring_light import MockRingLightController
 from bubble_craps.state_machine import State, StateMachine
@@ -42,7 +42,14 @@ def main() -> None:
     # Initialize hardware — use real implementations on Pi, mocks otherwise
     on_pi = is_raspberry_pi()
 
-    motor = MockMotorController()  # Always mock until CAN bus firmware is ready
+    if on_pi:
+        motor = CANMotorController(
+            channel=config.motor.can_channel,
+            can_id=config.motor.can_id,
+        )
+    else:
+        motor = MockMotorController()
+
     ring_light = MockRingLightController()  # Mock until GPIO wiring is done
 
     if on_pi:

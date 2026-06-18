@@ -7,9 +7,13 @@ trigger:
 
 # Motor settings
 motor:
+  can_channel: "can0"        # socketcan interface name
+  can_id: 0x141              # CAN arbitration ID for the motor (motor index 0)
+  roll_rpm: 40               # motor speed during rolling phase
   roll_duration_min_sec: 3   # minimum motor run time
   roll_duration_max_sec: 8   # maximum motor run time
-  park_position: 0           # motor position for capture (units TBD)
+  park_position: 0           # motor position for capture (degrees)
+  park_speed_limit: 44       # RPM limit when moving to park position
   park_timeout_sec: 5        # max time to wait for motor to reach park position
   park_poll_interval_sec: 0.1  # how often to poll is_at_position()
   settling_time_sec: 2       # time to wait after park position is reached

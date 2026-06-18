@@ -17,9 +17,13 @@ class TriggerConfig:
 
 @dataclass
 class MotorConfig:
+    can_channel: str = "can0"
+    can_id: int = 0x141
+    roll_rpm: float = 40.0
     roll_duration_min_sec: float = 3.0
     roll_duration_max_sec: float = 8.0
     park_position: float = 0.0
+    park_speed_limit: float = 44.0
     park_timeout_sec: float = 5.0
     park_poll_interval_sec: float = 0.1
     settling_time_sec: float = 2.0

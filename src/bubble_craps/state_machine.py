@@ -97,13 +97,16 @@ class StateMachine:
             self.config.motor.roll_duration_min_sec,
             self.config.motor.roll_duration_max_sec,
         )
-        self.motor.start()
+        self.motor.start(rpm=self.config.motor.roll_rpm)
         time.sleep(duration)
         self.motor.stop()
 
         # SETTLING — move to park position and wait
         self.transition(State.SETTLING)
-        self.motor.go_to_position(self.config.motor.park_position)
+        self.motor.go_to_position(
+            self.config.motor.park_position,
+            speed_limit=self.config.motor.park_speed_limit,
+        )
 
         deadline = time.monotonic() + self.config.motor.park_timeout_sec
         while not self.motor.is_at_position():
