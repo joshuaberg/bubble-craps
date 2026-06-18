@@ -103,7 +103,7 @@ class StateMachine:
 
         # SETTLING — move to park position and wait
         self.transition(State.SETTLING)
-        self.motor.go_to_position(
+        self.motor.go_to_angle(
             self.config.motor.park_position,
             speed_limit=self.config.motor.park_speed_limit,
         )

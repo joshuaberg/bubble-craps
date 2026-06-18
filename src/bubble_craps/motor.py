@@ -1,5 +1,4 @@
 import logging
-import time
 from abc import ABC, abstractmethod
 
 logger = logging.getLogger(__name__)
@@ -18,12 +17,19 @@ class MotorController(ABC):
 
     @abstractmethod
     def go_to_position(self, position: float, speed_limit: float = 44.0) -> None:
-        """Command the motor to move to an absolute position (degrees).
+        """Command the motor to move to an absolute multi-turn position (degrees).
+        Non-blocking — call is_at_position() to poll for completion."""
+
+    @abstractmethod
+    def go_to_angle(self, angle: float, speed_limit: float = 44.0) -> None:
+        """Command the motor to move to the nearest equivalent angle (0-360).
+        Calculates the closest absolute target based on current position.
         Non-blocking — call is_at_position() to poll for completion."""
 
     @abstractmethod
     def get_position(self) -> float | None:
-        """Read the current motor position in degrees. Returns None on error."""
+        """Read the current motor position in degrees (absolute/multi-turn).
+        Returns None on error."""
 
     @abstractmethod
     def is_at_position(self) -> bool:
@@ -83,22 +89,21 @@ class CANMotorController(MotorController):
             logger.info("Motor stopped")
 
     def go_to_position(self, position: float, speed_limit: float = 44.0) -> None:
-        speed_raw = int(speed_limit * 360 * 10 / 60)
-        angle_raw = int(position * 10 * 100)
-        data = [
-            0xA4, 0x00,
-            speed_raw & 0xFF,
-            (speed_raw >> 8) & 0xFF,
-            angle_raw & 0xFF,
-            (angle_raw >> 8) & 0xFF,
-            (angle_raw >> 16) & 0xFF,
-            (angle_raw >> 24) & 0xFF,
-        ]
-        if self._send(data):
-            self._read_response()
-            self._target_position = position
-            self._running = True
-            logger.info("Motor moving to %.2f deg (speed limit %.1f RPM)", position, speed_limit)
+        self._go_to_target(position, speed_limit)
+
+    def go_to_angle(self, angle: float, speed_limit: float = 44.0) -> None:
+        current = self.get_position()
+        if current is None:
+            logger.error("Cannot go_to_angle: failed to read current position")
+            return
+
+        # Find the nearest absolute position that corresponds to this angle
+        target = self._nearest_target(current, angle)
+        logger.info(
+            "go_to_angle: current=%.2f, target_angle=%.2f, absolute_target=%.2f",
+            current, angle, target,
+        )
+        self._go_to_target(target, speed_limit)
 
     def get_position(self) -> float | None:
         data = [0x92, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
@@ -139,6 +144,45 @@ class CANMotorController(MotorController):
         self._turn_off()
         self._bus.shutdown()
         logger.info("CAN bus shut down")
+
+    def _go_to_target(self, position: float, speed_limit: float) -> None:
+        """Send the absolute position command to the motor."""
+        speed_raw = int(speed_limit * 360 * 10 / 60)
+        angle_raw = int(position * 10 * 100)
+        data = [
+            0xA4, 0x00,
+            speed_raw & 0xFF,
+            (speed_raw >> 8) & 0xFF,
+            angle_raw & 0xFF,
+            (angle_raw >> 8) & 0xFF,
+            (angle_raw >> 16) & 0xFF,
+            (angle_raw >> 24) & 0xFF,
+        ]
+        if self._send(data):
+            self._read_response()
+            self._target_position = position
+            self._running = True
+            logger.info("Motor moving to %.2f deg (speed limit %.1f RPM)", position, speed_limit)
+
+    @staticmethod
+    def _nearest_target(current: float, angle: float) -> float:
+        """Find the nearest absolute position that matches the desired angle.
+
+        Example: current=737, angle=0 -> returns 720 (not 0)
+                 current=737, angle=90 -> returns 720+90=810? No — 737%360=17,
+                 so nearest 90 is 720+90=810 (forward 73 deg) vs 360+90=450
+                 (backward 287 deg) -> picks 810.
+        """
+        # Which full rotation are we in?
+        base = (current // 360) * 360
+        # Two candidates: this rotation and the adjacent one
+        candidate_a = base + angle
+        candidate_b = candidate_a + 360
+        candidate_c = candidate_a - 360
+
+        # Pick whichever is closest to current position
+        candidates = [candidate_a, candidate_b, candidate_c]
+        return min(candidates, key=lambda c: abs(c - current))
 
     def _turn_on(self) -> bool:
         data = [0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
@@ -192,6 +236,11 @@ class MockMotorController(MotorController):
 
     def go_to_position(self, position: float, speed_limit: float = 44.0) -> None:
         logger.info("MockMotor: go_to_position (position=%.2f)", position)
+        self._running = False
+        self._at_position = True
+
+    def go_to_angle(self, angle: float, speed_limit: float = 44.0) -> None:
+        logger.info("MockMotor: go_to_angle (angle=%.2f)", angle)
         self._running = False
         self._at_position = True
 

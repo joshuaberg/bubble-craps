@@ -75,18 +75,18 @@ def test_speed_control(motor: CANMotorController, rpm: float) -> bool:
         return False
 
 
-def test_position_control(motor: CANMotorController) -> bool:
-    """Test 3: Move to a specific position and verify arrival."""
-    separator("TEST 3: Position Control (go to 90 deg)")
+def test_go_to_angle(motor: CANMotorController) -> bool:
+    """Test 3: Use go_to_angle to move to nearest 90 degrees."""
+    separator("TEST 3: go_to_angle (nearest 90 deg)")
 
     start_pos = motor.get_position()
     print(f"Starting position: {start_pos}")
+    print(f"Current angle within rotation: {start_pos % 360:.2f} deg")
 
-    target = 90.0
-    print(f"Commanding move to {target} deg...")
-    motor.go_to_position(target, speed_limit=20.0)
+    target_angle = 90.0
+    print(f"Commanding go_to_angle({target_angle})...")
+    motor.go_to_angle(target_angle, speed_limit=20.0)
 
-    # Poll for arrival with timeout
     timeout = 5.0
     poll_interval = 0.2
     deadline = time.monotonic() + timeout
@@ -94,24 +94,28 @@ def test_position_control(motor: CANMotorController) -> bool:
     while not motor.is_at_position():
         current = motor.get_position()
         elapsed = timeout - (deadline - time.monotonic())
-        print(f"  [{elapsed:.1f}s] position: {current}")
+        print(f"  [{elapsed:.1f}s] position: {current:.2f} (angle: {current % 360:.2f})")
         if time.monotonic() > deadline:
-            print(f"FAIL — did not reach {target} deg within {timeout}s")
+            print(f"FAIL — did not reach angle {target_angle} within {timeout}s")
             return False
         time.sleep(poll_interval)
 
     final_pos = motor.get_position()
-    print(f"Final position: {final_pos}")
-    print(f"PASS — reached target (within 1 deg)")
+    final_angle = final_pos % 360
+    print(f"Final position: {final_pos:.2f} (angle: {final_angle:.2f})")
+    print(f"PASS — reached nearest {target_angle} deg")
     return True
 
 
-def test_return_to_zero(motor: CANMotorController) -> bool:
-    """Test 4: Return to position 0 (simulates parking for capture)."""
-    separator("TEST 4: Return to Zero (park position)")
+def test_park_at_zero(motor: CANMotorController) -> bool:
+    """Test 4: Park at nearest 0 degrees (simulates capture park position)."""
+    separator("TEST 4: Park at nearest 0 deg (go_to_angle)")
 
-    print("Commanding move to 0 deg...")
-    motor.go_to_position(0.0, speed_limit=20.0)
+    start_pos = motor.get_position()
+    print(f"Starting position: {start_pos:.2f} (angle: {start_pos % 360:.2f})")
+
+    print("Commanding go_to_angle(0)...")
+    motor.go_to_angle(0.0, speed_limit=20.0)
 
     timeout = 5.0
     deadline = time.monotonic() + timeout
@@ -119,15 +123,16 @@ def test_return_to_zero(motor: CANMotorController) -> bool:
     while not motor.is_at_position():
         current = motor.get_position()
         elapsed = timeout - (deadline - time.monotonic())
-        print(f"  [{elapsed:.1f}s] position: {current}")
+        print(f"  [{elapsed:.1f}s] position: {current:.2f} (angle: {current % 360:.2f})")
         if time.monotonic() > deadline:
             print("FAIL — did not reach 0 deg within timeout")
             return False
         time.sleep(0.2)
 
     final_pos = motor.get_position()
-    print(f"Final position: {final_pos}")
-    print("PASS — returned to zero")
+    final_angle = final_pos % 360
+    print(f"Final position: {final_pos:.2f} (angle: {final_angle:.2f})")
+    print("PASS — parked at nearest 0 deg")
     return True
 
 
@@ -146,8 +151,8 @@ def test_full_roll_cycle(motor: CANMotorController, rpm: float) -> bool:
     pos_after_stop = motor.get_position()
     print(f"Position after stop: {pos_after_stop}")
 
-    print("Step 3: Parking at 0 deg...")
-    motor.go_to_position(0.0, speed_limit=30.0)
+    print("Step 3: Parking at nearest 0 deg...")
+    motor.go_to_angle(0.0, speed_limit=30.0)
 
     timeout = 5.0
     deadline = time.monotonic() + timeout
@@ -191,8 +196,8 @@ def main():
 
         if results["connection"]:
             results["speed_control"] = test_speed_control(motor, args.rpm)
-            results["position_control"] = test_position_control(motor)
-            results["return_to_zero"] = test_return_to_zero(motor)
+            results["go_to_angle"] = test_go_to_angle(motor)
+            results["park_at_zero"] = test_park_at_zero(motor)
             results["full_roll_cycle"] = test_full_roll_cycle(motor, args.rpm)
 
     except KeyboardInterrupt:
