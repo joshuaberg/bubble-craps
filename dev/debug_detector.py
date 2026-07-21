@@ -165,14 +165,10 @@ def main():
     save(out_dir, "02_blur.jpg", blurred)
 
     # ── Stage 2: Threshold ────────────────────────────────────────────────────
-    print("\n[2/7] Adaptive threshold")
-    block = args.thresh_block | 1  # ensure odd
-    thresh = cv2.adaptiveThreshold(
-        blurred, 255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV,
-        block, args.thresh_c,
-    )
+    print("\n[2/7] Threshold (white dice on grey background)")
+    _, thresh = cv2.threshold(blurred, args.thresh_block, 255, cv2.THRESH_BINARY)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
     save(out_dir, "03_thresh.jpg", thresh)
 
     # ── Stage 3: Find squares ─────────────────────────────────────────────────
@@ -184,28 +180,34 @@ def main():
     squares = []
 
     for contour in contours:
-        peri = cv2.arcLength(contour, True)
-        approx = cv2.approxPolyDP(contour, 0.04 * peri, True)
-
-        if len(approx) != 4:
-            continue
-
-        area = cv2.contourArea(approx)
+        area = cv2.contourArea(contour)
         if area < args.min_area or area > args.max_area:
-            cv2.drawContours(contour_vis, [approx], -1, (0, 0, 255), 1)  # red = rejected
+            cv2.drawContours(contour_vis, [contour], -1, (0, 0, 255), 1)  # red = rejected size
             continue
 
-        rect = cv2.minAreaRect(approx)
+        rect = cv2.minAreaRect(contour)
         w, h = rect[1]
         if w == 0 or h == 0:
             continue
         aspect = max(w, h) / min(w, h)
         if aspect > args.aspect_tolerance:
-            cv2.drawContours(contour_vis, [approx], -1, (0, 165, 255), 1)  # orange = wrong shape
+            cv2.drawContours(contour_vis, [contour], -1, (0, 165, 255), 1)  # orange = wrong shape
             continue
 
-        cv2.drawContours(contour_vis, [approx], -1, (0, 255, 0), 2)  # green = accepted
-        squares.append(approx)
+        # Check how well the contour fills its bounding rect (rectangularity)
+        rect_area = w * h
+        extent = area / rect_area
+        if extent < 0.7:
+            cv2.drawContours(contour_vis, [contour], -1, (0, 255, 255), 1)  # yellow = not rectangular
+            print(f"    rejected: area={area:.0f} extent={extent:.2f} (not rectangular enough)")
+            continue
+
+        # Use the 4 corners of minAreaRect as our "square"
+        box = cv2.boxPoints(rect)
+        box = np.intp(box)
+        cv2.drawContours(contour_vis, [box], -1, (0, 255, 0), 2)  # green = accepted
+        print(f"    accepted: area={area:.0f} aspect={aspect:.2f} extent={extent:.2f}")
+        squares.append(box)
 
     save(out_dir, "04_contours.jpg", contour_vis)
     print(f"  accepted squares: {len(squares)}")
