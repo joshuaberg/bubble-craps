@@ -9,8 +9,8 @@ trigger:
 motor:
   can_channel: "can0"        # socketcan interface name
   can_id: 0x141              # CAN arbitration ID for the motor (motor index 0)
-  roll_rpm_min: 300           # minimum motor speed during rolling phase
-  roll_rpm_max: 600           # maximum motor speed during rolling phase
+  roll_rpm_min: 450           # minimum motor speed during rolling phase
+  roll_rpm_max: 550           # maximum motor speed during rolling phase
   roll_duration_min_sec: 3   # minimum motor run time
   roll_duration_max_sec: 5   # maximum motor run time
   park_position: 294.29           # motor position for capture (degrees)
