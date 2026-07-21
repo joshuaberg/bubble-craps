@@ -91,13 +91,18 @@ class StateMachine:
         """Execute the full roll cycle: ROLLING -> SETTLING -> CAPTURE -> ANALYZE -> PUBLISH."""
         roll_id = uuid.uuid4().hex[:8]
 
-        # ROLLING
+        # ROLLING — randomize both speed and duration for true randomness
         self.transition(State.ROLLING)
+        rpm = random.uniform(
+            self.config.motor.roll_rpm_min,
+            self.config.motor.roll_rpm_max,
+        )
         duration = random.uniform(
             self.config.motor.roll_duration_min_sec,
             self.config.motor.roll_duration_max_sec,
         )
-        self.motor.start(rpm=self.config.motor.roll_rpm)
+        logger.info("Roll %s: rpm=%.1f, duration=%.1fs", roll_id, rpm, duration)
+        self.motor.start(rpm=rpm)
         time.sleep(duration)
         self.motor.stop()
 

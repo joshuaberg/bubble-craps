@@ -19,7 +19,8 @@ class TriggerConfig:
 class MotorConfig:
     can_channel: str = "can0"
     can_id: int = 0x141
-    roll_rpm: float = 550.0
+    roll_rpm_min: float = 300.0
+    roll_rpm_max: float = 800.0
     roll_duration_min_sec: float = 3.0
     roll_duration_max_sec: float = 8.0
     park_position: float = 0.0
