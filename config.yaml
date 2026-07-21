@@ -10,10 +10,10 @@ motor:
   can_channel: "can0"        # socketcan interface name
   can_id: 0x141              # CAN arbitration ID for the motor (motor index 0)
   roll_rpm_min: 300           # minimum motor speed during rolling phase
-  roll_rpm_max: 800           # maximum motor speed during rolling phase
+  roll_rpm_max: 600           # maximum motor speed during rolling phase
   roll_duration_min_sec: 3   # minimum motor run time
-  roll_duration_max_sec: 8   # maximum motor run time
-  park_position: 0           # motor position for capture (degrees)
+  roll_duration_max_sec: 5   # maximum motor run time
+  park_position: 294.29           # motor position for capture (degrees)
   park_speed_limit: 100      # RPM limit when moving to park position
   park_timeout_sec: 5        # max time to wait for motor to reach park position
   park_poll_interval_sec: 0.1  # how often to poll is_at_position()
