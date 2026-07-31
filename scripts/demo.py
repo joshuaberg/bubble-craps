@@ -16,6 +16,8 @@ import sys
 import time
 from pathlib import Path
 
+import cv2
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from bubble_craps.config import load_config
@@ -82,6 +84,7 @@ def main():
     parser = argparse.ArgumentParser(description="Full roll-detect demo (no MQTT)")
     parser.add_argument("--count", type=int, default=0, help="Number of rolls (0 = infinite)")
     parser.add_argument("--delay", type=float, default=3.0, help="Seconds between rolls")
+    parser.add_argument("--save-images", action="store_true", help="Save capture images to demo_out/")
     parser.add_argument("--channel", default=config.motor.can_channel)
     parser.add_argument("--can-id", default=f"0x{config.motor.can_id:X}")
     args = parser.parse_args()
@@ -100,6 +103,10 @@ def main():
     cam = init_camera(config)
 
     detector = DiceDetector(config.detection)
+
+    if args.save_images:
+        out_dir = Path("demo_out")
+        out_dir.mkdir(exist_ok=True)
 
     roll_num = 0
     results = []
@@ -126,12 +133,18 @@ def main():
             print("  Capturing image...")
             image = capture(cam)
 
+            if args.save_images:
+                cv2.imwrite(str(out_dir / f"roll_{roll_num:03d}.jpg"), image)
+                print(f"  Saved: demo_out/roll_{roll_num:03d}.jpg")
+
             # Detect
             print("  Detecting dice...")
             result = detector.detect(image)
 
             if result is None:
                 print("  DETECTION FAILED")
+                if args.save_images:
+                    cv2.imwrite(str(out_dir / f"roll_{roll_num:03d}_FAIL.jpg"), image)
             else:
                 total = result["die1"] + result["die2"]
                 print(f"  >> Die 1: {result['die1']}  Die 2: {result['die2']}  Total: {total}")
