@@ -68,11 +68,10 @@ class DiceDetector:
         return blurred
 
     def _threshold(self, gray: np.ndarray) -> np.ndarray:
-        """Apply adaptive thresholding to isolate dice faces."""
-        # TODO: tune parameters during calibration
-        thresh = cv2.adaptiveThreshold(
-            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2
-        )
+        """Global threshold to isolate white dice on green felt."""
+        _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
         return thresh
 
     def _find_squares(self, thresh: np.ndarray) -> list[np.ndarray]:
@@ -81,20 +80,11 @@ class DiceDetector:
         squares = []
 
         for contour in contours:
-            peri = cv2.arcLength(contour, True)
-            approx = cv2.approxPolyDP(contour, 0.04 * peri, True)
-
-            # Must have 4 vertices (quadrilateral)
-            if len(approx) != 4:
+            area = cv2.contourArea(contour)
+            if area < 1000 or area > 500_000:
                 continue
 
-            area = cv2.contourArea(approx)
-            # TODO: tune area range during calibration
-            if area < 1000:
-                continue
-
-            # Check aspect ratio is roughly square
-            rect = cv2.minAreaRect(approx)
+            rect = cv2.minAreaRect(contour)
             w, h = rect[1]
             if w == 0 or h == 0:
                 continue
@@ -102,7 +92,14 @@ class DiceDetector:
             if aspect > 1.3:
                 continue
 
-            squares.append(approx)
+            # Check rectangularity — contour should fill most of bounding rect
+            extent = area / (w * h)
+            if extent < 0.7:
+                continue
+
+            box = cv2.boxPoints(rect)
+            box = np.intp(box)
+            squares.append(box)
 
         return squares
 
