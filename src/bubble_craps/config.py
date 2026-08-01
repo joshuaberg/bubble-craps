@@ -39,7 +39,7 @@ class CameraConfig:
 
 @dataclass
 class RingLightConfig:
-    gpio_pin: int = 18
+    gpio_pin: int = 13
     idle_brightness: float = 0.3
 
 
@@ -72,6 +72,9 @@ class DetectionConfig:
     max_retries: int = 2
     calibration_file: str = "calibration.json"
     position_tolerance_px: int = 20
+    roi_center_x: int = 0       # 0 = auto (image center)
+    roi_center_y: int = 0       # 0 = auto (image center)
+    roi_radius: int = 0         # 0 = no ROI mask
 
 
 @dataclass

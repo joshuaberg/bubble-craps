@@ -27,7 +27,7 @@ camera:
 
 # Ring light settings
 ring_light:
-  gpio_pin: 18               # GPIO pin for PWM control
+  gpio_pin: 13               # GPIO pin for NeoPixel data (physical pin 33)
   idle_brightness: 0.3
 
 # MQTT settings
@@ -50,3 +50,6 @@ detection:
   max_retries: 2
   calibration_file: "calibration.json"
   position_tolerance_px: 20
+  roi_center_x: 0               # 0 = auto (image center)
+  roi_center_y: 0               # 0 = auto (image center)
+  roi_radius: 0                 # 0 = no ROI mask; set via scripts/calibrate_roi.py
