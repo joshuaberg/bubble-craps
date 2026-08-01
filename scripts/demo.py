@@ -175,12 +175,21 @@ def main():
         print("\n\nInterrupted!")
 
     finally:
-        print("\nStopping motor...")
-        motor.stop()
-        motor.shutdown()
-        light.off()
-        cam.stop()
-        cam.close()
+        print("\nShutting down...")
+        try:
+            motor.stop()
+            motor.shutdown()
+        except Exception:
+            pass
+        try:
+            light.off()
+        except Exception:
+            pass
+        try:
+            cam.stop()
+            cam.close()
+        except Exception:
+            pass
 
         # Summary
         if results:
