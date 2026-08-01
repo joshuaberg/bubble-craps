@@ -28,6 +28,7 @@ camera:
 # Ring light settings
 ring_light:
   gpio_pin: 13               # GPIO pin for NeoPixel data (physical pin 33)
+  num_leds: 24               # number of LEDs on the ring
   idle_brightness: 0.3
 
 # MQTT settings

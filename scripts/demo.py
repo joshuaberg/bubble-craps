@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from bubble_craps.config import load_config
 from bubble_craps.detector import DiceDetector
 from bubble_craps.motor import CANMotorController
+from bubble_craps.ring_light import NeoPixelRingLightController
 
 logging.basicConfig(
     level=logging.INFO,
@@ -102,6 +103,18 @@ def main():
     print("Initializing camera...")
     cam = init_camera(config)
 
+    print("Initializing ring light...")
+    try:
+        light = NeoPixelRingLightController(
+            gpio_pin=config.ring_light.gpio_pin,
+            num_leds=config.ring_light.num_leds,
+            brightness=config.ring_light.idle_brightness,
+        )
+    except Exception as e:
+        print(f"  Ring light failed: {e} (continuing without it)")
+        from bubble_craps.ring_light import MockRingLightController
+        light = MockRingLightController()
+
     detector = DiceDetector(config.detection)
 
     if args.save_images:
@@ -129,9 +142,12 @@ def main():
             # Roll
             do_roll(motor, config)
 
-            # Capture
+            # Capture — full brightness white for the photo
+            light.set_pattern("capture")
+            time.sleep(0.3)  # let LEDs stabilize
             print("  Capturing image...")
             image = capture(cam)
+            light.set_pattern("idle")
 
             if args.save_images:
                 cv2.imwrite(str(out_dir / f"roll_{roll_num:03d}.jpg"), image)
@@ -162,6 +178,7 @@ def main():
         print("\nStopping motor...")
         motor.stop()
         motor.shutdown()
+        light.off()
         cam.stop()
         cam.close()
 

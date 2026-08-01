@@ -40,6 +40,7 @@ class CameraConfig:
 @dataclass
 class RingLightConfig:
     gpio_pin: int = 13
+    num_leds: int = 24
     idle_brightness: float = 0.3
 
 

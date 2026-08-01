@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from bubble_craps.config import CameraConfig
+from bubble_craps.config import load_config
 
 
 def main():
@@ -25,7 +25,7 @@ def main():
     parser.add_argument("--height", type=int, default=1080)
     args = parser.parse_args()
 
-    config = CameraConfig(resolution=(args.width, args.height))
+    config = load_config()
 
     try:
         from picamera2 import Picamera2
@@ -33,16 +33,37 @@ def main():
         print("ERROR: picamera2 not available. Run this script on the Pi.")
         sys.exit(1)
 
+    # Init ring light
+    try:
+        from bubble_craps.ring_light import NeoPixelRingLightController
+        light = NeoPixelRingLightController(
+            gpio_pin=config.ring_light.gpio_pin,
+            num_leds=config.ring_light.num_leds,
+            brightness=config.ring_light.idle_brightness,
+        )
+    except Exception as e:
+        print(f"  Ring light not available: {e}")
+        light = None
+
     print(f"Initializing camera at {args.width}x{args.height}...")
     cam = Picamera2()
-    cam.configure(cam.create_still_configuration(main={"size": config.resolution}))
+    cam.configure(cam.create_still_configuration(main={"size": (args.width, args.height)}))
     cam.start()
 
     import time
     time.sleep(2)  # let auto-exposure settle
 
+    # Full brightness white for capture
+    if light:
+        light.set_pattern("capture")
+        time.sleep(0.3)
+
     output_path = Path(args.output)
     cam.capture_file(str(output_path))
+
+    if light:
+        light.off()
+
     cam.stop()
     cam.close()
 
