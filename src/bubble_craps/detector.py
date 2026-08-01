@@ -12,18 +12,21 @@ class DiceDetector:
     """Detects dice faces and pip counts from a captured image using OpenCV.
 
     Pipeline:
-      1. Preprocess (grayscale, blur)
-      2. Threshold
-      3. Find square contours (dice faces)
-      4. Extract centers
+      1. Apply ROI mask (circular, to ignore area outside the bowl)
+      2. Grayscale + blur + sharpen
+      3. Global threshold (230) to isolate white dice
+      4. Find square contours (dice faces) filtered by size/aspect/rectangularity
       5. Perspective-correct each die face
-      6. Detect pips within each corrected ROI
+      6. Detect pips via blob detection
       7. Validate (exactly 2 dice, 1-6 pips each)
     """
 
+    THRESHOLD = 230
+    DIE_SIZE = 300  # approximate die face size in pixels
+    WARP_SIZE = 200
+
     def __init__(self, config: DetectionConfig):
         self.config = config
-        # TODO: load calibration from config.calibration_file if it exists
 
     def detect(self, image: np.ndarray) -> dict | None:
         """Run the full detection pipeline on a captured image.
@@ -31,8 +34,9 @@ class DiceDetector:
         Returns a dict with keys: die1, die2, positions
         or None if detection failed.
         """
-        gray = self._preprocess(image)
-        thresh = self._threshold(gray)
+        masked = self._apply_roi(image)
+        sharpened = self._preprocess(masked)
+        thresh = self._threshold(sharpened)
         squares = self._find_squares(thresh)
 
         if len(squares) != 2:
@@ -61,27 +65,43 @@ class DiceDetector:
             "positions": centers,
         }
 
+    def _apply_roi(self, image: np.ndarray) -> np.ndarray:
+        """Apply circular ROI mask if configured."""
+        r = self.config.roi_radius
+        if r <= 0:
+            return image
+
+        h, w = image.shape[:2]
+        cx = self.config.roi_center_x if self.config.roi_center_x > 0 else w // 2
+        cy = self.config.roi_center_y if self.config.roi_center_y > 0 else h // 2
+
+        mask = np.zeros((h, w), dtype=np.uint8)
+        cv2.circle(mask, (cx, cy), r, 255, -1)
+        return cv2.bitwise_and(image, image, mask=mask)
+
     def _preprocess(self, image: np.ndarray) -> np.ndarray:
-        """Convert to grayscale and apply Gaussian blur."""
+        """Convert to grayscale, blur, and sharpen."""
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        return blurred
+        sharpened = cv2.addWeighted(gray, 1.5, blurred, -0.5, 0)
+        return sharpened
 
     def _threshold(self, gray: np.ndarray) -> np.ndarray:
         """Global threshold to isolate white dice on green felt."""
-        _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-        thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
+        _, thresh = cv2.threshold(gray, self.THRESHOLD, 255, cv2.THRESH_BINARY)
         return thresh
 
     def _find_squares(self, thresh: np.ndarray) -> list[np.ndarray]:
         """Find contours that are square-shaped (dice faces)."""
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        min_area = (self.DIE_SIZE * 0.5) ** 2
+        max_area = (self.DIE_SIZE * 2.0) ** 2
         squares = []
 
         for contour in contours:
             area = cv2.contourArea(contour)
-            if area < 1000 or area > 500_000:
+            if area < min_area or area > max_area:
                 continue
 
             rect = cv2.minAreaRect(contour)
@@ -89,12 +109,11 @@ class DiceDetector:
             if w == 0 or h == 0:
                 continue
             aspect = max(w, h) / min(w, h)
-            if aspect > 1.3:
+            if aspect > 1.4:
                 continue
 
-            # Check rectangularity — contour should fill most of bounding rect
             extent = area / (w * h)
-            if extent < 0.7:
+            if extent < 0.65:
                 continue
 
             box = cv2.boxPoints(rect)
@@ -116,16 +135,14 @@ class DiceDetector:
     def _perspective_correct(self, image: np.ndarray, contour: np.ndarray) -> np.ndarray:
         """Warp the die face to a top-down square view."""
         pts = contour.reshape(4, 2).astype(np.float32)
-        # Order points: top-left, top-right, bottom-right, bottom-left
         pts = self._order_points(pts)
 
-        size = 200  # output square size in pixels
         dst = np.array(
-            [[0, 0], [size, 0], [size, size], [0, size]], dtype=np.float32
+            [[0, 0], [self.WARP_SIZE, 0], [self.WARP_SIZE, self.WARP_SIZE], [0, self.WARP_SIZE]],
+            dtype=np.float32,
         )
         matrix = cv2.getPerspectiveTransform(pts, dst)
-        warped = cv2.warpPerspective(image, matrix, (size, size))
-        return warped
+        return cv2.warpPerspective(image, matrix, (self.WARP_SIZE, self.WARP_SIZE))
 
     def _order_points(self, pts: np.ndarray) -> np.ndarray:
         """Order 4 points as: top-left, top-right, bottom-right, bottom-left."""
@@ -141,7 +158,7 @@ class DiceDetector:
     def _count_pips(self, warped: np.ndarray) -> int | None:
         """Count the number of pips on a perspective-corrected die face."""
         gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-        # TODO: tune blob detector params during calibration
+
         params = cv2.SimpleBlobDetector_Params()
         params.filterByArea = True
         params.minArea = 50
