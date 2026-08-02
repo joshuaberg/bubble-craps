@@ -22,11 +22,25 @@ class DiceDetector:
     """
 
     THRESHOLD = 230
-    DIE_SIZE = 300  # approximate die face size in pixels
     WARP_SIZE = 200
 
     def __init__(self, config: DetectionConfig):
         self.config = config
+
+        # Derive area bounds from die_size_px (±15%)
+        die = config.die_size_px
+        self.min_die_area = int((die * 0.85) ** 2)
+        self.max_die_area = int((die * 1.1) ** 2)
+
+        # Derive pip area bounds from pip_diameter_px (±40%)
+        pip_r = config.pip_diameter_px / 2
+        pip_area = 3.14159 * pip_r ** 2
+        self.min_pip_area = int(pip_area * 0.6)
+        self.max_pip_area = int(pip_area * 1.6)
+
+        logger.info("Die area range: %d-%d, pip area range: %d-%d",
+                     self.min_die_area, self.max_die_area,
+                     self.min_pip_area, self.max_pip_area)
 
     def detect(self, image: np.ndarray) -> dict | None:
         """Run the full detection pipeline on a captured image.
@@ -50,8 +64,8 @@ class DiceDetector:
             center = self._get_center(contour)
             centers.append(center)
 
-            warped = self._perspective_correct(image, contour)
-            pips = self._count_pips(warped)
+            warped_thresh = self._perspective_correct(thresh, contour)
+            pips = self._count_pips(warped_thresh)
 
             if pips is None or pips < 1 or pips > 6:
                 logger.warning("Invalid pip count: %s", pips)
@@ -89,14 +103,16 @@ class DiceDetector:
     def _threshold(self, gray: np.ndarray) -> np.ndarray:
         """Global threshold to isolate white dice on green felt."""
         _, thresh = cv2.threshold(gray, self.THRESHOLD, 255, cv2.THRESH_BINARY)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
         return thresh
 
     def _find_squares(self, thresh: np.ndarray) -> list[np.ndarray]:
         """Find contours that are square-shaped (dice faces)."""
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        min_area = (self.DIE_SIZE * 0.5) ** 2
-        max_area = (self.DIE_SIZE * 2.0) ** 2
+        min_area = self.min_die_area
+        max_area = self.max_die_area
         squares = []
 
         for contour in contours:
@@ -132,17 +148,19 @@ class DiceDetector:
         cy = int(moments["m01"] / moments["m00"])
         return (cx, cy)
 
-    def _perspective_correct(self, image: np.ndarray, contour: np.ndarray) -> np.ndarray:
-        """Warp the die face to a top-down square view."""
+    def _perspective_correct(self, thresh: np.ndarray, contour: np.ndarray) -> np.ndarray:
+        """Warp the threshold image to a top-down square view, filling borders white."""
         pts = contour.reshape(4, 2).astype(np.float32)
         pts = self._order_points(pts)
 
+        s = self.WARP_SIZE
         dst = np.array(
-            [[0, 0], [self.WARP_SIZE, 0], [self.WARP_SIZE, self.WARP_SIZE], [0, self.WARP_SIZE]],
+            [[0, 0], [s, 0], [s, s], [0, s]],
             dtype=np.float32,
         )
         matrix = cv2.getPerspectiveTransform(pts, dst)
-        return cv2.warpPerspective(image, matrix, (self.WARP_SIZE, self.WARP_SIZE))
+        return cv2.warpPerspective(thresh, matrix, (s, s),
+                                   borderMode=cv2.BORDER_CONSTANT, borderValue=255)
 
     def _order_points(self, pts: np.ndarray) -> np.ndarray:
         """Order 4 points as: top-left, top-right, bottom-right, bottom-left."""
@@ -155,22 +173,20 @@ class DiceDetector:
         rect[3] = pts[np.argmax(d)]
         return rect
 
-    def _count_pips(self, warped: np.ndarray) -> int | None:
-        """Count the number of pips on a perspective-corrected die face."""
-        gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-
+    def _count_pips(self, warped_thresh: np.ndarray) -> int | None:
+        """Count the number of pips on a perspective-corrected threshold image."""
         params = cv2.SimpleBlobDetector_Params()
         params.filterByArea = True
-        params.minArea = 300
-        params.maxArea = 800
+        params.minArea = self.min_pip_area
+        params.maxArea = self.max_pip_area
         params.filterByCircularity = True
-        params.minCircularity = 0.4
+        params.minCircularity = 0.2
         params.filterByConvexity = True
-        params.minConvexity = 0.4
+        params.minConvexity = 0.2
         params.filterByInertia = False
 
         detector = cv2.SimpleBlobDetector_create(params)
-        keypoints = detector.detect(gray)
+        keypoints = detector.detect(warped_thresh)
         count = len(keypoints)
 
         if count < 1 or count > 6:

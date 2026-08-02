@@ -54,3 +54,5 @@ detection:
   roi_center_x: 0               # 0 = auto (image center)
   roi_center_y: 0               # 0 = auto (image center)
   roi_radius: 650               # ROI circle radius in pixels
+  die_size_px: 305              # die face width in pixels
+  pip_diameter_px: 25           # pip diameter in pixels

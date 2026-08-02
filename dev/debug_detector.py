@@ -5,7 +5,7 @@ Run on your laptop after copying an image from the Pi.
 
 Usage:
   python3 dev/debug_detector.py capture.jpg --roi-radius 650
-  python3 dev/debug_detector.py capture.jpg --roi-radius 650 --die-size 300
+  python3 dev/debug_detector.py capture.jpg --roi-radius 650 --roi-cx 960 --roi-cy 540
 """
 
 import argparse
@@ -17,12 +17,13 @@ import numpy as np
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Debug dice detector v4")
+    p = argparse.ArgumentParser(description="Debug dice detector pipeline")
     p.add_argument("image", help="Path to input image")
     p.add_argument("--out-dir", default="debug_out", help="Directory for output images")
 
-    # Die size
-    p.add_argument("--die-size", type=int, default=300, help="Approximate die face size in pixels")
+    # Die and pip sizes
+    p.add_argument("--die-size", type=int, default=305, help="Die face width in pixels")
+    p.add_argument("--pip-diameter", type=int, default=25, help="Pip diameter in pixels")
 
     # ROI mask
     p.add_argument("--roi-cx", type=int, default=0, help="ROI circle center X (0 = image center)")
@@ -79,24 +80,29 @@ def main():
     sharpened = cv2.addWeighted(gray, 1.5, blurred, -0.5, 0)
     save(out_dir, "02_sharp.jpg", sharpened)
 
-    # ── 03: Threshold ────────────────────────────────────────────────────────
-    print("\n[03] Threshold (230)")
+    # ── 03: Threshold + cleanup ────────────────────────────────────────────
+    print("\n[03] Threshold (230) + morphological open")
     _, thresh = cv2.threshold(sharpened, 230, 255, cv2.THRESH_BINARY)
+    # Open to remove small speckle noise, keep big squares
+    open_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, open_kernel)
     save(out_dir, "03_thresh.jpg", thresh)
 
     # ── 04: Find squares ─────────────────────────────────────────────────────
-    print(f"\n[04] Finding squares (die_size={args.die_size})")
+    # Derive area bounds from die size
+    die = args.die_size
+    min_die_area = int((die * 0.85) ** 2)
+    max_die_area = int((die * 1.1) ** 2)
+
+    print(f"\n[04] Finding squares (die_size={die}px, area={min_die_area}-{max_die_area})")
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     print(f"  total contours: {len(contours)}")
-
-    min_area = (args.die_size * 0.5) ** 2
-    max_area = (args.die_size * 2.0) ** 2
     squares = []
     contour_vis = masked.copy()
 
     for contour in contours:
         area = cv2.contourArea(contour)
-        if area < min_area or area > max_area:
+        if area < min_die_area or area > max_die_area:
             cv2.drawContours(contour_vis, [contour], -1, (0, 0, 255), 1)  # red = wrong size
             continue
 
@@ -119,7 +125,8 @@ def main():
         box = np.intp(box)
         cv2.drawContours(contour_vis, [box], -1, (0, 255, 0), 2)  # green = accepted
         squares.append(box)
-        print(f"    accepted: area={area:.0f} aspect={aspect:.2f} extent={extent:.2f}")
+        detected_size = int(area ** 0.5)
+        print(f"    accepted: area={area:.0f} die_size={detected_size}px aspect={aspect:.2f} extent={extent:.2f}")
 
     save(out_dir, "04_squares.jpg", contour_vis)
     print(f"  accepted squares: {len(squares)}")
@@ -144,26 +151,31 @@ def main():
             size = 200
             dst = np.array([[0, 0], [size, 0], [size, size], [0, size]], dtype=np.float32)
             matrix = cv2.getPerspectiveTransform(rect_ordered, dst)
-            warped = cv2.warpPerspective(image, matrix, (size, size))
-            save(out_dir, f"05_warped_{i}.jpg", warped)
+            warped_thresh = cv2.warpPerspective(thresh, matrix, (size, size),
+                                                borderMode=cv2.BORDER_CONSTANT, borderValue=255)
+            save(out_dir, f"05_thresh_{i}.jpg", warped_thresh)
 
-            # Blob detect pips
-            warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+            # Derive pip area bounds from pip diameter
+            pip_r = args.pip_diameter / 2
+            pip_area = 3.14159 * pip_r ** 2
+            min_pip_area = int(pip_area * 0.6)
+            max_pip_area = int(pip_area * 1.6)
+
             params = cv2.SimpleBlobDetector_Params()
             params.filterByArea = True
-            params.minArea = 300
-            params.maxArea = 800
+            params.minArea = min_pip_area
+            params.maxArea = max_pip_area
             params.filterByCircularity = True
-            params.minCircularity = 0.4
+            params.minCircularity = 0.2
             params.filterByConvexity = True
-            params.minConvexity = 0.4
+            params.minConvexity = 0.2
             params.filterByInertia = False
 
             detector = cv2.SimpleBlobDetector_create(params)
-            keypoints = detector.detect(warped_gray)
+            keypoints = detector.detect(warped_thresh)
             count = len(keypoints)
 
-            pip_vis = warped.copy()
+            pip_vis = cv2.cvtColor(warped_thresh, cv2.COLOR_GRAY2BGR)
             for kp in keypoints:
                 x, y = int(kp.pt[0]), int(kp.pt[1])
                 r = max(3, int(kp.size / 2))
