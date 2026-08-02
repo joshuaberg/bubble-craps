@@ -151,12 +151,12 @@ def main():
             warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
             params = cv2.SimpleBlobDetector_Params()
             params.filterByArea = True
-            params.minArea = 50
-            params.maxArea = 2000
+            params.minArea = 300
+            params.maxArea = 800
             params.filterByCircularity = True
-            params.minCircularity = 0.5
+            params.minCircularity = 0.4
             params.filterByConvexity = True
-            params.minConvexity = 0.5
+            params.minConvexity = 0.4
             params.filterByInertia = False
 
             detector = cv2.SimpleBlobDetector_create(params)
@@ -167,7 +167,9 @@ def main():
             for kp in keypoints:
                 x, y = int(kp.pt[0]), int(kp.pt[1])
                 r = max(3, int(kp.size / 2))
+                area = 3.14159 * (kp.size / 2) ** 2
                 cv2.circle(pip_vis, (x, y), r, (0, 255, 0), 2)
+                print(f"    pip at ({x},{y}) size={kp.size:.1f} area={area:.0f}")
             cv2.putText(pip_vis, f"pips: {count}", (5, 20),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
             save(out_dir, f"05_pips_{i}.jpg", pip_vis)

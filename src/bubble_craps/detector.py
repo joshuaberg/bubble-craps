@@ -161,12 +161,12 @@ class DiceDetector:
 
         params = cv2.SimpleBlobDetector_Params()
         params.filterByArea = True
-        params.minArea = 50
-        params.maxArea = 2000
+        params.minArea = 300
+        params.maxArea = 800
         params.filterByCircularity = True
-        params.minCircularity = 0.5
+        params.minCircularity = 0.4
         params.filterByConvexity = True
-        params.minConvexity = 0.5
+        params.minConvexity = 0.4
         params.filterByInertia = False
 
         detector = cv2.SimpleBlobDetector_create(params)
