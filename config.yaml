@@ -53,4 +53,4 @@ detection:
   position_tolerance_px: 20
   roi_center_x: 0               # 0 = auto (image center)
   roi_center_y: 0               # 0 = auto (image center)
-  roi_radius: 0                 # 0 = no ROI mask; set via scripts/calibrate_roi.py
+  roi_radius: 650               # ROI circle radius in pixels
