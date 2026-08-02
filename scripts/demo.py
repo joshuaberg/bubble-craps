@@ -40,7 +40,18 @@ def init_camera(config):
     cam = Picamera2()
     cam.configure(cam.create_still_configuration(main={"size": config.camera.resolution}))
     cam.start()
-    time.sleep(2)  # let auto-exposure settle
+
+    if config.camera.exposure_time_us > 0:
+        cam.set_controls({
+            "AeEnable": False,
+            "ExposureTime": config.camera.exposure_time_us,
+            "AnalogueGain": 1.0,
+        })
+        print(f"  Fixed exposure: {config.camera.exposure_time_us} us")
+    else:
+        print("  Auto exposure")
+
+    time.sleep(2)  # let camera settle
     return cam
 
 

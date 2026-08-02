@@ -23,6 +23,7 @@ motor:
 camera:
   resolution: [1920, 1080]
   exposure_mode: "fixed"
+  exposure_time_us: 15000       # manual exposure in microseconds (0 = auto)
   white_balance: "fixed"
 
 # Ring light settings

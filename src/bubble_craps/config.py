@@ -34,6 +34,7 @@ class MotorConfig:
 class CameraConfig:
     resolution: tuple[int, int] = (1920, 1080)
     exposure_mode: str = "fixed"
+    exposure_time_us: int = 15000  # 0 = auto
     white_balance: str = "fixed"
 
 
