@@ -90,6 +90,11 @@ class NeoPixelRingLightController(RingLightController):
             self._strip.setBrightness(int(self._brightness * 255))
             self._strip.show()
         elif pattern == "rolling":
+            # Chase animation available via "rolling_chase" pattern
+            self._set_all(255, 255, 255)
+            self._strip.setBrightness(int(self._brightness * 255))
+            self._strip.show()
+        elif pattern == "rolling_chase":
             self._chase_thread = threading.Thread(target=self._run_chase, daemon=True)
             self._chase_thread.start()
         elif pattern == "success":
