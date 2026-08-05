@@ -61,12 +61,15 @@ def capture(cam) -> "np.ndarray":
     return cam.capture_array()
 
 
-def do_roll(motor, config) -> None:
+def do_roll(motor, config, light=None) -> None:
     """Spin, stop, park, settle."""
     mc = config.motor
 
     rpm = random.uniform(mc.roll_rpm_min, mc.roll_rpm_max)
     duration = random.uniform(mc.roll_duration_min_sec, mc.roll_duration_max_sec)
+
+    if light:
+        light.set_pattern("rolling")
 
     print(f"  Rolling: {rpm:.0f} RPM for {duration:.1f}s")
     motor.start(rpm=rpm)
@@ -75,6 +78,9 @@ def do_roll(motor, config) -> None:
     print("  Stopping...")
     motor.stop()
     time.sleep(0.5)
+
+    if light:
+        light.set_pattern("idle")
 
     print(f"  Parking at {mc.park_position} deg...")
     motor.go_to_angle(mc.park_position, speed_limit=mc.park_speed_limit)
@@ -151,7 +157,7 @@ def main():
             print(f"\n--- Roll #{roll_num} ---")
 
             # Roll
-            do_roll(motor, config)
+            do_roll(motor, config, light)
 
             # Capture — full brightness white for the photo
             light.set_pattern("capture")
