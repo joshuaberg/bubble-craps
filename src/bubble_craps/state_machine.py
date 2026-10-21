@@ -9,6 +9,9 @@ from bubble_craps.config import AppConfig
 
 logger = logging.getLogger(__name__)
 
+_CAPTURE_MAX_ATTEMPTS = 2
+_CAPTURE_RETRY_DELAY_SEC = 1.0
+
 
 class State(Enum):
     IDLE = "IDLE"
@@ -33,9 +36,8 @@ class StateMachine:
         self.mqtt_client = mqtt_client
 
         self.state = State.IDLE
-        self.total_rolls = 0
-        self.error_count = 0
         self.last_roll_id: str | None = None
+        self._error_reason: str | None = None
         self._start_time = time.monotonic()
 
         # For mechanism integrity check
@@ -45,10 +47,14 @@ class StateMachine:
     def uptime_sec(self) -> int:
         return int(time.monotonic() - self._start_time)
 
-    def transition(self, new_state: State) -> None:
+    def transition(self, new_state: State, error_reason: str | None = None) -> None:
         """Transition to a new state, updating the ring light and publishing status."""
         logger.info("State transition: %s -> %s", self.state.value, new_state.value)
         self.state = new_state
+        if new_state == State.ERROR:
+            self._error_reason = error_reason
+        elif new_state == State.IDLE:
+            self._error_reason = None
         self._update_ring_light()
         self.mqtt_client.publish_status(self._build_status())
 
@@ -89,7 +95,7 @@ class StateMachine:
 
     def _run_roll_cycle(self) -> None:
         """Execute the full roll cycle: ROLLING -> SETTLING -> CAPTURE -> ANALYZE -> PUBLISH."""
-        roll_id = uuid.uuid4().hex[:8]
+        roll_id = uuid.uuid4().hex
 
         # ROLLING — randomize both speed and duration for true randomness
         self.transition(State.ROLLING)
@@ -122,68 +128,103 @@ class StateMachine:
 
         time.sleep(self.config.motor.settling_time_sec)
 
-        # CAPTURE + ANALYZE with retries
-        result = None
-        retries = self.config.detection.max_retries
-
-        for attempt in range(1 + retries):
+        # CAPTURE — separate retry loop for hardware failures
+        image = None
+        for capture_attempt in range(_CAPTURE_MAX_ATTEMPTS):
             self.transition(State.CAPTURE)
-            image = self.camera.capture()
+            try:
+                image = self.camera.capture()
+                break
+            except Exception as exc:
+                logger.warning("Camera capture failed (attempt %d/%d): %s",
+                               capture_attempt + 1, _CAPTURE_MAX_ATTEMPTS, exc)
+                if capture_attempt < _CAPTURE_MAX_ATTEMPTS - 1:
+                    time.sleep(_CAPTURE_RETRY_DELAY_SEC)
 
+        if image is None:
+            logger.error("Camera hardware failure after %d attempts", _CAPTURE_MAX_ATTEMPTS)
+            self.transition(State.ERROR, error_reason="camera_failure")
+            return
+
+        # ANALYZE — detection retry loop
+        result = None
+        detection_attempts = self.config.detection.max_retries + 1
+
+        for attempt in range(detection_attempts):
             self.transition(State.ANALYZE)
             result = self.detector.detect(image)
 
             if result is not None:
                 break
 
-            if attempt < retries:
-                logger.warning("Detection failed, retrying (%d/%d)", attempt + 1, retries)
+            if attempt < detection_attempts - 1:
+                logger.warning("Detection failed, retrying (%d/%d)", attempt + 1, detection_attempts - 1)
+                # Re-capture for next detection attempt
+                self.transition(State.CAPTURE)
+                try:
+                    image = self.camera.capture()
+                except Exception as exc:
+                    logger.error("Camera failed during detection retry: %s", exc)
+                    self.transition(State.ERROR, error_reason="camera_failure")
+                    return
 
-        if result is None:
-            logger.error("Detection failed after %d retries", retries)
-            self.error_count += 1
-            self.mqtt_client.publish_error({
-                "roll_id": roll_id,
-                "error": "detection_failed",
-                "message": f"Could not detect exactly 2 dice after {retries} retries",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "device_id": self.config.mqtt.client_id,
-            })
-            self.transition(State.ERROR)
-            return
+        # Downsample and publish image regardless of detection outcome
+        image_bytes = self._encode_image(image)
 
-        # Integrity check
-        if self._check_mechanism_failure(result):
+        # Integrity check — only on successful detection
+        if result is not None and self._check_mechanism_failure(result):
             logger.error("Mechanism failure detected — same pips and positions as previous roll")
-            self.error_count += 1
-            self.mqtt_client.publish_error({
-                "roll_id": roll_id,
-                "error": "mechanism_failure",
-                "message": "Consecutive rolls have identical pip values and dice positions",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "device_id": self.config.mqtt.client_id,
-            })
-            self.transition(State.ERROR)
+            self.mqtt_client.publish_image(image_bytes)
+            self.transition(State.ERROR, error_reason="mechanism_failure")
             return
-
-        self._previous_roll = result
 
         # PUBLISH
         self.transition(State.PUBLISH)
-        self.total_rolls += 1
-        self.last_roll_id = roll_id
 
-        roll_result = {
-            "roll_id": roll_id,
-            "die1": result["die1"],
-            "die2": result["die2"],
-            "total": result["die1"] + result["die2"],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "device_id": self.config.mqtt.client_id,
-        }
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        if result is not None:
+            self._previous_roll = result
+            self.last_roll_id = roll_id
+            roll_result = {
+                "roll_id": roll_id,
+                "die1": result["die1"],
+                "die2": result["die2"],
+                "total": result["die1"] + result["die2"],
+                "roll_status": "ok",
+                "roll_status_reason": None,
+                "attempts": attempt + 1,
+                "timestamp": timestamp,
+                "device_id": self.config.mqtt.client_id,
+            }
+        else:
+            logger.warning("Detection failed after all attempts — publishing null roll")
+            roll_result = {
+                "roll_id": roll_id,
+                "die1": None,
+                "die2": None,
+                "total": None,
+                "roll_status": "detection_failed",
+                "roll_status_reason": "Could not detect exactly 2 dice",
+                "attempts": detection_attempts,
+                "timestamp": timestamp,
+                "device_id": self.config.mqtt.client_id,
+            }
+
         self.mqtt_client.publish_result(roll_result)
+        self.mqtt_client.publish_image(image_bytes)
 
         self.transition(State.IDLE)
+
+    def _encode_image(self, image) -> bytes:
+        """Downsample and encode a numpy image to JPEG bytes for publishing."""
+        import cv2
+        target_width = 640
+        h, w = image.shape[:2]
+        scale = target_width / w
+        small = cv2.resize(image, (target_width, int(h * scale)))
+        _, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        return buf.tobytes()
 
     def _check_mechanism_failure(self, current: dict) -> bool:
         """Compare current roll against previous to detect mechanism failure."""
@@ -193,7 +234,6 @@ class StateMachine:
         prev = self._previous_roll
         tolerance = self.config.detection.position_tolerance_px
 
-        # Check if pip values match
         pips_match = (
             current["die1"] == prev["die1"]
             and current["die2"] == prev["die2"]
@@ -201,7 +241,6 @@ class StateMachine:
         if not pips_match:
             return False
 
-        # Check if positions match (within tolerance)
         positions_match = all(
             abs(c[0] - p[0]) <= tolerance and abs(c[1] - p[1]) <= tolerance
             for c, p in zip(current["positions"], prev["positions"])
@@ -215,9 +254,8 @@ class StateMachine:
             "trigger_mode": self.config.trigger.mode,
             "timer_interval_sec": self.config.trigger.timer_interval_sec,
             "uptime_sec": self.uptime_sec,
-            "total_rolls": self.total_rolls,
             "last_roll_id": self.last_roll_id,
-            "errors": self.error_count,
+            "error_reason": self._error_reason,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "device_id": self.config.mqtt.client_id,
         }
