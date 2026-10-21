@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 from bubble_craps.camera import MockCamera, PiCamera
-from bubble_craps.config import load_config
+from bubble_craps.config import load_config, save_trigger_config
 from bubble_craps.detector import DiceDetector
 from bubble_craps.motor import CANMotorController, MockMotorController
 from bubble_craps.mqtt_client import MqttClient
@@ -74,6 +74,7 @@ def main() -> None:
                 if mode == "timer" and "interval_sec" in payload:
                     config.trigger.timer_interval_sec = payload["interval_sec"]
                 logger.info("Trigger mode changed to: %s", mode)
+                save_trigger_config(config.trigger, config_path)
         elif action == "status":
             if state_machine:
                 state_machine.mqtt_client.publish_status(state_machine._build_status())
@@ -101,14 +102,23 @@ def main() -> None:
 
     logger.info("Bubble Craps Machine started (trigger_mode=%s)", config.trigger.mode)
 
+    _HEARTBEAT_INTERVAL_SEC = 300  # 5 minutes
+    _last_heartbeat = time.monotonic()
+
     try:
         while not shutdown_event.is_set():
             if config.trigger.mode == "timer" and state_machine.state == State.IDLE:
                 state_machine.trigger_roll()
                 shutdown_event.wait(timeout=config.trigger.timer_interval_sec)
             else:
-                # In remote mode or non-IDLE state, just wait
                 shutdown_event.wait(timeout=1.0)
+
+            # Heartbeat — publish status every 5 minutes while in IDLE
+            if state_machine.state == State.IDLE:
+                now = time.monotonic()
+                if now - _last_heartbeat >= _HEARTBEAT_INTERVAL_SEC:
+                    mqtt_client.publish_status(state_machine._build_status())
+                    _last_heartbeat = now
     finally:
         logger.info("Shutting down...")
         ring_light.off()
