@@ -38,11 +38,6 @@ mqtt:
   port: 1883
   client_id: "bubble-craps-01"
   keepalive: 60
-  topics:
-    result: "bubble-craps/roll/result"
-    status: "bubble-craps/status"
-    error: "bubble-craps/roll/error"
-    command: "bubble-craps/command"
   offline_queue:
     max_size: 100
     persist_file: "pending_rolls.json"

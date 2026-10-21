@@ -46,14 +46,6 @@ class RingLightConfig:
 
 
 @dataclass
-class MqttTopicsConfig:
-    result: str = "bubble-craps/roll/result"
-    status: str = "bubble-craps/status"
-    error: str = "bubble-craps/roll/error"
-    command: str = "bubble-craps/command"
-
-
-@dataclass
 class OfflineQueueConfig:
     max_size: int = 100
     persist_file: str = "pending_rolls.json"
@@ -65,8 +57,23 @@ class MqttConfig:
     port: int = 1883
     client_id: str = "bubble-craps-01"
     keepalive: int = 60
-    topics: MqttTopicsConfig = field(default_factory=MqttTopicsConfig)
     offline_queue: OfflineQueueConfig = field(default_factory=OfflineQueueConfig)
+
+    @property
+    def topic_result(self) -> str:
+        return f"bubble-craps/{self.client_id}/roll/result"
+
+    @property
+    def topic_image(self) -> str:
+        return f"bubble-craps/{self.client_id}/roll/image"
+
+    @property
+    def topic_status(self) -> str:
+        return f"bubble-craps/{self.client_id}/status"
+
+    @property
+    def topic_command(self) -> str:
+        return f"bubble-craps/{self.client_id}/command"
 
 
 @dataclass
@@ -113,9 +120,8 @@ def load_config(path: Path | None = None) -> AppConfig:
     ring_light = RingLightConfig(**raw.get("ring_light", {}))
 
     mqtt_raw = raw.get("mqtt", {})
-    topics = MqttTopicsConfig(**mqtt_raw.pop("topics", {}))
     offline_queue = OfflineQueueConfig(**mqtt_raw.pop("offline_queue", {}))
-    mqtt = MqttConfig(**mqtt_raw, topics=topics, offline_queue=offline_queue)
+    mqtt = MqttConfig(**mqtt_raw, offline_queue=offline_queue)
 
     detection = DetectionConfig(**raw.get("detection", {}))
 

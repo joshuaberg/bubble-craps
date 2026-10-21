@@ -2,6 +2,7 @@ import json
 import logging
 import threading
 from collections import deque
+from datetime import datetime, timezone
 from pathlib import Path
 
 import paho.mqtt.client as mqtt
@@ -34,6 +35,19 @@ class MqttClient:
         self._client.on_disconnect = self._on_disconnect
         self._client.on_message = self._on_message
 
+        # Configure LWT — broker publishes this automatically on unexpected disconnect
+        lwt_payload = json.dumps({
+            "state": "OFFLINE",
+            "device_id": config.client_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+        self._client.will_set(
+            topic=config.topic_status,
+            payload=lwt_payload,
+            qos=1,
+            retain=True,
+        )
+
     def connect(self) -> None:
         """Connect to the MQTT broker."""
         logger.info("Connecting to MQTT broker at %s:%d", self.config.broker, self.config.port)
@@ -51,22 +65,23 @@ class MqttClient:
         """Publish a roll result. Queues locally if disconnected."""
         if self._connected:
             self._flush_queue()
-            self._publish(self.config.topics.result, result, qos=1, retain=False)
+            self._publish(self.config.topic_result, result, qos=1, retain=False)
         else:
             logger.warning("MQTT disconnected, queuing roll result")
             with self._queue_lock:
                 self._queue.append(result)
             self._persist_queue()
 
-    def publish_status(self, status: dict) -> None:
-        """Publish system status (retained)."""
+    def publish_image(self, image_bytes: bytes) -> None:
+        """Publish a roll image as raw JPEG bytes. Best-effort — not queued offline."""
         if self._connected:
-            self._publish(self.config.topics.status, status, qos=1, retain=True)
+            self._client.publish(self.config.topic_image, image_bytes, qos=1, retain=False)
+            logger.debug("Published image (%d bytes) to %s", len(image_bytes), self.config.topic_image)
 
-    def publish_error(self, error: dict) -> None:
-        """Publish an error message."""
+    def publish_status(self, status: dict) -> None:
+        """Publish machine status (retained)."""
         if self._connected:
-            self._publish(self.config.topics.error, error, qos=1, retain=False)
+            self._publish(self.config.topic_status, status, qos=1, retain=True)
 
     def _publish(self, topic: str, payload: dict, qos: int = 1, retain: bool = False) -> None:
         message = json.dumps(payload)
@@ -77,7 +92,7 @@ class MqttClient:
         if rc == 0:
             logger.info("Connected to MQTT broker")
             self._connected = True
-            client.subscribe(self.config.topics.command, qos=1)
+            client.subscribe(self.config.topic_command, qos=1)
             self._flush_queue()
         else:
             logger.error("MQTT connection failed with code %d", rc)
@@ -101,7 +116,7 @@ class MqttClient:
         with self._queue_lock:
             while self._queue:
                 result = self._queue.popleft()
-                self._publish(self.config.topics.result, result, qos=1, retain=False)
+                self._publish(self.config.topic_result, result, qos=1, retain=False)
                 logger.info("Flushed queued roll: %s", result.get("roll_id"))
         self._persist_queue()
 
