@@ -75,6 +75,8 @@ def main() -> None:
                     config.trigger.timer_interval_sec = payload["interval_sec"]
                 logger.info("Trigger mode changed to: %s", mode)
                 save_trigger_config(config.trigger, config_path)
+                if state_machine:
+                    mqtt_client.publish_status(state_machine._build_status())
         elif action == "status":
             if state_machine:
                 state_machine.mqtt_client.publish_status(state_machine._build_status())
