@@ -49,7 +49,7 @@ mqtt:
 
 # Detection settings
 detection:
-  max_retries: 2
+  max_retries: 1
   calibration_file: "calibration.json"
   position_tolerance_px: 20
   roi_center_x: 0               # 0 = auto (image center)

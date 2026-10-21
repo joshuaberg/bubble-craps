@@ -19,7 +19,7 @@ import can
 
 
 CAN_ID = 0x141
-TAYLOR_FACTOR = 645. # For MF5005, this changes with motor 
+TAYLOR_FACTOR = 645 # For MF5005, this changes with motor 
 
 
 def send(bus: can.Bus, data: list[int]) -> bool:
