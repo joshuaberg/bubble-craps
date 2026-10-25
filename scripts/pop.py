@@ -39,7 +39,7 @@ def main():
     can_id = int(args.can_id, 16) if isinstance(args.can_id, str) else args.can_id
 
     try:
-        motor = CANMotorController(channel=args.channel, can_id=can_id)
+        motor = CANMotorController(channel=args.channel, can_id=can_id, torque_scale_factor=mc.torque_scale_factor)
     except Exception as e:
         print(f"Failed to open CAN bus: {e}")
         sys.exit(1)

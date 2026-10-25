@@ -30,8 +30,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import yaml
 
+from bubble_craps.config import load_config, DEFAULT_CONFIG_PATH
 from bubble_craps.motor import CANMotorController
-from bubble_craps.config import DEFAULT_CONFIG_PATH
 
 SMALL_STEP = 1.0   # degrees per left/right arrow
 BIG_STEP = 10.0    # degrees per up/down arrow
@@ -74,14 +74,17 @@ def update_config_park_position(angle: float, config_path: Path) -> None:
 
 
 def main():
+    config = load_config()
+    mc = config.motor
+
     parser = argparse.ArgumentParser(description="Calibrate dice platform park position")
-    parser.add_argument("--channel", default="can0", help="CAN interface (default: can0)")
-    parser.add_argument("--can-id", default="0x141", help="Motor CAN ID in hex (default: 0x141)")
+    parser.add_argument("--channel", default=mc.can_channel, help="CAN interface")
+    parser.add_argument("--can-id", default=f"0x{mc.can_id:X}", help="Motor CAN ID in hex")
     parser.add_argument("--speed", type=float, default=30.0, help="Speed for movements (RPM, default: 30)")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG_PATH), help="Path to config.yaml")
     args = parser.parse_args()
 
-    can_id = int(args.can_id, 16)
+    can_id = int(args.can_id, 16) if isinstance(args.can_id, str) else args.can_id
     config_path = Path(args.config)
 
     print("Bubble Craps Platform Calibration")
@@ -90,7 +93,7 @@ def main():
     print()
 
     try:
-        motor = CANMotorController(channel=args.channel, can_id=can_id)
+        motor = CANMotorController(channel=args.channel, can_id=can_id, torque_scale_factor=mc.torque_scale_factor)
     except Exception as e:
         print(f"Failed to open CAN bus: {e}")
         print("Make sure: sudo ip link set can0 up type can bitrate 1000000")

@@ -57,7 +57,7 @@ def main():
     print()
 
     try:
-        motor = CANMotorController(channel=args.channel, can_id=can_id)
+        motor = CANMotorController(channel=args.channel, can_id=can_id, torque_scale_factor=mc.torque_scale_factor)
     except Exception as e:
         print(f"Failed to open CAN bus: {e}")
         print("Make sure: sudo ip link set can0 up type can bitrate 1000000")

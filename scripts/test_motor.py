@@ -24,6 +24,7 @@ import time
 # Add src to path so we can import without installing
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "src"))
 
+from bubble_craps.config import load_config
 from bubble_craps.motor import CANMotorController
 
 logging.basicConfig(
@@ -169,13 +170,16 @@ def test_full_roll_cycle(motor: CANMotorController, rpm: float) -> bool:
 
 
 def main():
+    config = load_config()
+    mc = config.motor
+
     parser = argparse.ArgumentParser(description="Test motor functions for Bubble Craps")
-    parser.add_argument("--channel", default="can0", help="CAN interface name (default: can0)")
-    parser.add_argument("--can-id", default="0x141", help="Motor CAN ID in hex (default: 0x141)")
-    parser.add_argument("--rpm", type=float, default=550.0, help="RPM for speed tests (default: 40)")
+    parser.add_argument("--channel", default=mc.can_channel, help="CAN interface name")
+    parser.add_argument("--can-id", default=f"0x{mc.can_id:X}", help="Motor CAN ID in hex")
+    parser.add_argument("--rpm", type=float, default=550.0, help="RPM for speed tests (default: 550)")
     args = parser.parse_args()
 
-    can_id = int(args.can_id, 16)
+    can_id = int(args.can_id, 16) if isinstance(args.can_id, str) else args.can_id
 
     print(f"Bubble Craps Motor Test")
     print(f"  CAN channel: {args.channel}")
@@ -183,7 +187,7 @@ def main():
     print(f"  Test RPM: {args.rpm}")
 
     try:
-        motor = CANMotorController(channel=args.channel, can_id=can_id)
+        motor = CANMotorController(channel=args.channel, can_id=can_id, torque_scale_factor=mc.torque_scale_factor)
     except Exception as e:
         print(f"\nFailed to open CAN bus: {e}")
         print("\nMake sure the CAN interface is up:")

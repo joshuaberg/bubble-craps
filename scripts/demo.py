@@ -112,7 +112,7 @@ def main():
     # Init hardware
     print("Initializing motor...")
     try:
-        motor = CANMotorController(channel=args.channel, can_id=can_id)
+        motor = CANMotorController(channel=args.channel, can_id=can_id, torque_scale_factor=config.motor.torque_scale_factor)
     except Exception as e:
         print(f"Failed to open CAN bus: {e}")
         sys.exit(1)
@@ -129,8 +129,7 @@ def main():
         )
     except Exception as e:
         print(f"  Ring light failed: {e} (continuing without it)")
-        from bubble_craps.ring_light import MockRingLightController
-        light = MockRingLightController()
+        light = None
 
     detector = DiceDetector(config.detection)
 
@@ -160,11 +159,13 @@ def main():
             do_roll(motor, config, light)
 
             # Capture — full brightness white for the photo
-            light.set_pattern("capture")
-            time.sleep(0.3)  # let LEDs stabilize
+            if light:
+                light.set_pattern("capture")
+                time.sleep(0.3)  # let LEDs stabilize
             print("  Capturing image...")
             image = capture(cam)
-            light.set_pattern("idle")
+            if light:
+                light.set_pattern("idle")
 
             if args.save_images:
                 cv2.imwrite(str(out_dir / f"roll_{roll_num:03d}.jpg"), image)
@@ -199,7 +200,8 @@ def main():
         except Exception:
             pass
         try:
-            light.off()
+            if light:
+                light.off()
         except Exception:
             pass
         try:
