@@ -16,6 +16,7 @@ import logging
 import signal
 import sys
 import threading
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -79,12 +80,12 @@ def main():
     results = []
     roll_num = 0
 
-    def on_status(status):
-        logger.info("Status: state=%s", status["state"])
+    def on_transition(new_state):
+        logger.info("State: %s", new_state.value)
 
     state_machine = StateMachine(
         config, motor, light, camera, detector,
-        on_status=on_status,
+        on_transition=on_transition,
     )
 
     # Graceful shutdown
@@ -109,10 +110,11 @@ def main():
                 break
 
             roll_num += 1
+            roll_id = uuid.uuid4().hex
             print(f"\n--- Roll #{roll_num} ---")
 
             try:
-                outcome = state_machine.run_roll()
+                outcome = state_machine.run_roll(roll_id)
             except Exception:
                 logger.exception("Unexpected error during roll")
                 continue

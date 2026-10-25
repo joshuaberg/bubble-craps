@@ -5,7 +5,7 @@ import threading
 from pathlib import Path
 
 from bubble_craps.camera import PiCamera
-from bubble_craps.config import load_config, save_trigger_config
+from bubble_craps.config import load_config
 from bubble_craps.detector import DiceDetector
 from bubble_craps.motor import CANMotorController
 from bubble_craps.mqtt_client import MqttClient
@@ -47,31 +47,28 @@ def main() -> None:
     # MQTT client — command handler wired after supervisor is created
     mqtt_client = MqttClient(config.mqtt, on_command=lambda p: handle_command(p))
 
-    # State machine — only status callback (supervisor handles result/image)
+    # Roll supervisor — owns status, timer, retry policy, command queue
+    supervisor = RollSupervisor(config, state_machine=None, mqtt_client=mqtt_client,
+                                config_path=config_path)
+
+    # State machine — transition callback wired to supervisor
     state_machine = StateMachine(
         config, motor, ring_light, camera, detector,
-        on_status=mqtt_client.publish_status,
+        on_transition=supervisor._on_transition,
     )
+    supervisor._sm = state_machine
 
-    # Roll supervisor — owns timer, retry policy, command queue
-    supervisor = RollSupervisor(config, state_machine, mqtt_client)
-
+    # All commands go through the supervisor queue
     def handle_command(payload: dict) -> None:
         action = payload.get("action")
         if action == "roll":
             supervisor.enqueue("roll")
         elif action == "set_mode":
-            mode = payload.get("mode")
-            if mode in ("timer", "remote"):
-                config.trigger.mode = mode
-                if mode == "timer" and "interval_sec" in payload:
-                    config.trigger.timer_interval_sec = payload["interval_sec"]
-                logger.info("Trigger mode changed to: %s", mode)
-                save_trigger_config(config.trigger, config_path)
-                mqtt_client.publish_status(state_machine._build_status())
-                supervisor.reset_timer()
+            supervisor.enqueue("set_mode",
+                               mode=payload.get("mode"),
+                               interval_sec=payload.get("interval_sec"))
         elif action == "status":
-            mqtt_client.publish_status(state_machine._build_status())
+            supervisor._publish_status()
         elif action == "clear_error":
             supervisor.enqueue("clear_error")
         else:

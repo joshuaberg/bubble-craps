@@ -3,7 +3,6 @@ import random
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from enum import Enum
 
 from bubble_craps.config import AppConfig
@@ -41,56 +40,47 @@ class RollOutcome:
 
 
 class StateMachine:
-    """Orchestrates hardware through the roll cycle and reports outcomes.
+    """Drives hardware through the roll cycle and reports outcomes.
 
-    The state machine drives hardware (motor, camera, ring light) and
-    transitions through states for telemetry. It does NOT decide what to do
-    about errors — it reports outcomes via RollOutcome and lets the caller
-    (roll supervisor) decide retry/error policy.
+    The state machine only does three things:
+    1. Drive hardware (motor, camera, detector) through phases
+    2. Update the ring light for each phase
+    3. Notify a listener on each phase transition
+    4. Return a RollOutcome describing what happened
+
+    It does NOT own status, error policy, roll IDs, publishing, or retries.
+    The roll supervisor handles all of that.
     """
 
     def __init__(self, config: AppConfig, motor, ring_light, camera, detector,
-                 on_status=None):
+                 on_transition=None):
         self.config = config
         self.motor = motor
         self.ring_light = ring_light
         self.camera = camera
         self.detector = detector
 
-        self.on_status = on_status
-
+        self._on_transition = on_transition
         self.state = State.IDLE
-        self.last_roll_id: str | None = None
-        self._error_reason: str | None = None
-        self._start_time = time.monotonic()
 
         # For mechanism integrity check
         self._previous_roll: dict | None = None
 
-    @property
-    def uptime_sec(self) -> int:
-        return int(time.monotonic() - self._start_time)
-
-    def transition(self, new_state: State, error_reason: str | None = None) -> None:
-        """Transition to a new state, updating the ring light and emitting status."""
+    def transition(self, new_state: State) -> None:
+        """Move to a new state, update ring light, notify listener."""
         logger.info("State transition: %s -> %s", self.state.value, new_state.value)
         self.state = new_state
-        if new_state == State.ERROR:
-            self._error_reason = error_reason
-        elif new_state == State.IDLE:
-            self._error_reason = None
         self._update_ring_light()
-        if self.on_status:
-            self.on_status(self._build_status())
+        if self._on_transition:
+            self._on_transition(new_state)
 
-    def run_roll(self) -> RollOutcome:
+    def run_roll(self, roll_id: str) -> RollOutcome:
         """Full roll cycle: motor on, spin, park, settle, capture, detect.
 
-        Returns a RollOutcome describing what happened. Motor is always
-        stopped and turned off in the finally block. Unexpected exceptions
-        propagate after motor cleanup so the supervisor can handle them.
+        Returns a RollOutcome. Motor is always stopped and turned off
+        in the finally block. Unexpected exceptions propagate after
+        motor cleanup so the supervisor can handle them.
         """
-        roll_id = uuid.uuid4().hex
         self.transition(State.TRIGGERED)
 
         self.motor.turn_on()
@@ -235,15 +225,3 @@ class StateMachine:
         pattern = patterns.get(self.state, "off")
         if self.ring_light:
             self.ring_light.set_pattern(pattern)
-
-    def _build_status(self) -> dict:
-        return {
-            "state": self.state.value,
-            "trigger_mode": self.config.trigger.mode,
-            "timer_interval_sec": self.config.trigger.timer_interval_sec,
-            "uptime_sec": self.uptime_sec,
-            "last_roll_id": self.last_roll_id,
-            "error_reason": self._error_reason,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "device_id": self.config.mqtt.client_id,
-        }

@@ -2,8 +2,10 @@ import logging
 import queue
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 
+from bubble_craps.config import AppConfig, save_trigger_config
 from bubble_craps.state_machine import RollOutcome, State
 
 logger = logging.getLogger(__name__)
@@ -11,20 +13,23 @@ logger = logging.getLogger(__name__)
 _RETRY_CAPTURE_DELAY_SEC = 1.0
 _REROLL_DELAY_SEC = 3.0
 _MAX_CONSECUTIVE_UNEXPECTED_FAILURES = 3
+_MAX_CONSECUTIVE_DETECTION_FAILURES = 5
 _HEARTBEAT_INTERVAL_SEC = 300  # 5 minutes
 
 
 class RollSupervisor:
-    """Owns roll timing, retry policy, and error state.
+    """Owns roll timing, retry policy, error state, and status publishing.
 
     A single worker thread consumes commands from a queue. The queue's
     get-timeout doubles as the timer mechanism — no separate timer loop.
-    All retry and error-escalation logic lives here in _apply_policy(),
-    keeping the state machine focused on hardware orchestration.
+    All retry and error-escalation logic lives here, keeping the state
+    machine focused purely on driving hardware.
     """
 
-    def __init__(self, config, state_machine, mqtt_client):
+    def __init__(self, config: AppConfig, state_machine, mqtt_client,
+                 config_path=None):
         self._config = config
+        self._config_path = config_path
         self._sm = state_machine
         self._mqtt = mqtt_client
 
@@ -32,11 +37,22 @@ class RollSupervisor:
         self._shutdown = threading.Event()
         self._thread = threading.Thread(target=self._run, name="roll-supervisor", daemon=True)
 
+        # Status state — supervisor is the single owner
         self._error = False
         self._error_reason: str | None = None
+        self._last_roll_id: str | None = None
+        self._start_time = time.monotonic()
+
+        # Failure tracking
         self._consecutive_unexpected_failures = 0
+        self._consecutive_detection_failures = 0
+
+        # Timer
         self._next_timer_roll: float | None = None
         self._last_heartbeat = time.monotonic()
+
+        # Roll-in-progress flag for queue dedup
+        self._rolling = False
 
     def start(self) -> None:
         """Start the supervisor worker thread."""
@@ -47,19 +63,36 @@ class RollSupervisor:
     def stop(self) -> None:
         """Signal shutdown and wait for the worker thread to finish."""
         self._shutdown.set()
-        self._queue.put(None)  # unblock get()
+        self._queue.put(("_shutdown", {}))  # unblock get()
         self._thread.join(timeout=30)
         logger.info("Roll supervisor stopped")
 
-    def enqueue(self, command: str) -> None:
+    def enqueue(self, command: str, **kwargs) -> None:
         """Enqueue a command. Thread-safe, called from MQTT or main thread."""
-        self._queue.put(command)
+        self._queue.put((command, kwargs))
+
+    # -- Status (supervisor owns this) -------------------------------------
+
+    def _on_transition(self, _new_state: State) -> None:
+        """Called by state machine on every phase transition."""
+        self._publish_status()
+
+    def _build_status(self) -> dict:
+        return {
+            "state": self._sm.state.value,
+            "trigger_mode": self._config.trigger.mode,
+            "timer_interval_sec": self._config.trigger.timer_interval_sec,
+            "uptime_sec": int(time.monotonic() - self._start_time),
+            "last_roll_id": self._last_roll_id,
+            "error_reason": self._error_reason,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "device_id": self._config.mqtt.client_id,
+        }
+
+    def _publish_status(self) -> None:
+        self._mqtt.publish_status(self._build_status())
 
     # -- Timer management --------------------------------------------------
-
-    def reset_timer(self) -> None:
-        """Recalculate next auto-roll time. Called when mode/interval changes."""
-        self._reset_timer()
 
     def _reset_timer(self) -> None:
         if self._config.trigger.mode == "timer":
@@ -96,15 +129,18 @@ class RollSupervisor:
                     self._execute_roll()
                 continue
 
-            if item is None:  # shutdown sentinel
-                break
+            command, kwargs = item
 
-            if item == "roll":
+            if command == "_shutdown":
+                break
+            elif command == "roll":
                 self._execute_roll()
-            elif item == "clear_error":
+            elif command == "clear_error":
                 self._clear_error()
+            elif command == "set_mode":
+                self._handle_set_mode(kwargs)
             else:
-                logger.warning("Unknown supervisor command: %s", item)
+                logger.warning("Unknown supervisor command: %s", command)
 
     # -- Roll execution with retry policy ----------------------------------
 
@@ -114,81 +150,44 @@ class RollSupervisor:
             logger.warning("Cannot roll while in error state")
             return
 
+        if self._rolling:
+            logger.warning("Roll already in progress, ignoring")
+            return
+
+        self._rolling = True
+        roll_id = uuid.uuid4().hex
         attempts = []
 
         try:
-            outcome = self._sm.run_roll()
+            outcome = self._sm.run_roll(roll_id)
+            attempts.append(outcome.attempt)
         except Exception:
-            logger.exception("Unexpected error during roll")
+            logger.exception("Unexpected error during roll %s", roll_id)
             self._handle_unexpected_failure()
             return
+        finally:
+            self._rolling = False
+            self._reset_timer()
 
-        attempts.append(outcome.attempt)
-        self._apply_policy(outcome, attempts)
+        # If not ok, try recapture once (works for both detection_failed and camera_failure)
+        if outcome.status in ("detection_failed", "camera_failure"):
+            self._shutdown.wait(timeout=_RETRY_CAPTURE_DELAY_SEC)
+            if self._shutdown.is_set():
+                return
+            try:
+                retry = self._sm.retry_capture(roll_id)
+                attempts.append(retry.attempt)
+                outcome = retry
+            except Exception:
+                logger.exception("Unexpected error during retry_capture %s", roll_id)
+                self._handle_unexpected_failure()
+                return
 
-    def _apply_policy(self, outcome: RollOutcome, attempts: list) -> None:
-        """Central retry/error policy. All roll-level decisions live here."""
-
+        # Now decide based on final outcome
         if outcome.status == "ok":
             self._consecutive_unexpected_failures = 0
+            self._consecutive_detection_failures = 0
             self._publish_result(outcome, attempts, "ok")
-            self._reset_timer()
-            return
-
-        if outcome.status == "detection_failed":
-            # Dice might be blurry or cocked — retry capture once
-            time.sleep(_RETRY_CAPTURE_DELAY_SEC)
-            retry = self._try_retry_capture(outcome.roll_id)
-            if retry is None:
-                # retry_capture itself threw an unexpected exception
-                return
-
-            attempts.append(retry.attempt)
-
-            if retry.status == "ok":
-                self._consecutive_unexpected_failures = 0
-                self._publish_result(retry, attempts, "ok")
-                self._reset_timer()
-                return
-
-            if retry.status == "mechanism_failure":
-                self._publish_image(retry)
-                self._enter_error("mechanism_failure")
-                return
-
-            # Still unreadable — publish null result, schedule a fresh re-roll
-            self._publish_result(outcome, attempts, "detection_failed")
-            self._enqueue_reroll()
-            return
-
-        if outcome.status == "camera_failure":
-            # Camera hiccup? retry capture once
-            time.sleep(_RETRY_CAPTURE_DELAY_SEC)
-            retry = self._try_retry_capture(outcome.roll_id)
-            if retry is None:
-                return
-
-            attempts.append(retry.attempt)
-
-            if retry.status == "ok":
-                self._consecutive_unexpected_failures = 0
-                self._publish_result(retry, attempts, "ok")
-                self._reset_timer()
-                return
-
-            if retry.status == "mechanism_failure":
-                self._publish_image(retry)
-                self._enter_error("mechanism_failure")
-                return
-
-            if retry.status == "camera_failure":
-                # Camera genuinely broken
-                self._enter_error("camera_failure")
-                return
-
-            # Camera worked on retry but detection failed — publish null, reroll
-            self._publish_result(retry, attempts, "detection_failed")
-            self._enqueue_reroll()
             return
 
         if outcome.status == "mechanism_failure":
@@ -196,24 +195,37 @@ class RollSupervisor:
             self._enter_error("mechanism_failure")
             return
 
-    def _try_retry_capture(self, roll_id: str) -> RollOutcome | None:
-        """Attempt a retry_capture, handling unexpected exceptions.
+        if outcome.status == "camera_failure":
+            # Camera failed on initial AND retry — genuinely broken
+            self._enter_error("camera_failure")
+            return
 
-        Returns the RollOutcome, or None if an unexpected exception occurred
-        (in which case _handle_unexpected_failure has already been called).
-        """
-        try:
-            return self._sm.retry_capture(roll_id)
-        except Exception:
-            logger.exception("Unexpected error during retry_capture")
-            self._handle_unexpected_failure()
-            return None
+        if outcome.status == "detection_failed":
+            # Publish the null result
+            self._publish_result(outcome, attempts, "detection_failed")
+
+            self._consecutive_detection_failures += 1
+            if self._consecutive_detection_failures >= _MAX_CONSECUTIVE_DETECTION_FAILURES:
+                logger.error(
+                    "Entering ERROR after %d consecutive detection failures",
+                    self._consecutive_detection_failures,
+                )
+                self._enter_error("repeated_detection_failure")
+                return
+
+            # In timer mode, schedule a re-roll. In remote mode, let the
+            # caller decide — don't auto-reroll.
+            if self._config.trigger.mode == "timer":
+                self._shutdown.wait(timeout=_REROLL_DELAY_SEC)
+                if not self._shutdown.is_set():
+                    self._queue.put(("roll", {}))
+            return
 
     def _handle_unexpected_failure(self) -> None:
         self._consecutive_unexpected_failures += 1
         if self._consecutive_unexpected_failures >= _MAX_CONSECUTIVE_UNEXPECTED_FAILURES:
             logger.error(
-                "Entering ERROR state after %d consecutive unexpected failures",
+                "Entering ERROR after %d consecutive unexpected failures",
                 self._consecutive_unexpected_failures,
             )
             self._enter_error("repeated_unexpected_failure")
@@ -224,22 +236,15 @@ class RollSupervisor:
                 _MAX_CONSECUTIVE_UNEXPECTED_FAILURES,
             )
             self._sm.transition(State.IDLE)
-
-    def _enqueue_reroll(self) -> None:
-        """Schedule a re-roll after a brief pause.
-
-        Uses the shutdown event for the delay so we don't block shutdown.
-        """
-        self._shutdown.wait(timeout=_REROLL_DELAY_SEC)
-        if not self._shutdown.is_set():
-            self._queue.put("roll")
+            self._publish_status()
 
     # -- Error state management --------------------------------------------
 
     def _enter_error(self, reason: str) -> None:
         self._error = True
         self._error_reason = reason
-        self._sm.transition(State.ERROR, error_reason=reason)
+        self._sm.transition(State.ERROR)
+        self._publish_status()
 
     def _clear_error(self) -> None:
         if not self._error:
@@ -249,8 +254,25 @@ class RollSupervisor:
         self._error = False
         self._error_reason = None
         self._consecutive_unexpected_failures = 0
+        self._consecutive_detection_failures = 0
         self._sm.transition(State.IDLE)
         self._reset_timer()
+        self._publish_status()
+
+    # -- set_mode (runs on worker thread) ----------------------------------
+
+    def _handle_set_mode(self, kwargs: dict) -> None:
+        mode = kwargs.get("mode")
+        if mode not in ("timer", "remote"):
+            logger.warning("Invalid mode: %s", mode)
+            return
+        self._config.trigger.mode = mode
+        if mode == "timer" and "interval_sec" in kwargs:
+            self._config.trigger.timer_interval_sec = kwargs["interval_sec"]
+        logger.info("Trigger mode changed to: %s", mode)
+        save_trigger_config(self._config.trigger, self._config_path)
+        self._reset_timer()
+        self._publish_status()
 
     # -- Publishing --------------------------------------------------------
 
@@ -259,7 +281,7 @@ class RollSupervisor:
         timestamp = datetime.now(timezone.utc).isoformat()
 
         if outcome.result is not None:
-            self._sm.last_roll_id = outcome.roll_id
+            self._last_roll_id = outcome.roll_id
             roll_result = {
                 "roll_id": outcome.roll_id,
                 "die1": outcome.result["die1"],
@@ -299,5 +321,5 @@ class RollSupervisor:
         now = time.monotonic()
         if (self._sm.state == State.IDLE
                 and now - self._last_heartbeat >= _HEARTBEAT_INTERVAL_SEC):
-            self._mqtt.publish_status(self._sm._build_status())
+            self._publish_status()
             self._last_heartbeat = now
