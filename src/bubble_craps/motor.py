@@ -1,50 +1,9 @@
 import logging
-from abc import ABC, abstractmethod
 
 logger = logging.getLogger(__name__)
 
 
-class MotorController(ABC):
-    """Abstract interface for motor control."""
-
-    @abstractmethod
-    def start(self, rpm: float = 550.0) -> None:
-        """Start the motor spinning at the given speed in RPM."""
-
-    @abstractmethod
-    def stop(self) -> None:
-        """Stop the motor immediately."""
-
-    @abstractmethod
-    def go_to_position(self, position: float, speed_limit: float = 100.0) -> None:
-        """Command the motor to move to an absolute multi-turn position (degrees).
-        Non-blocking — call is_at_position() to poll for completion."""
-
-    @abstractmethod
-    def go_to_angle(self, angle: float, speed_limit: float = 100.0) -> None:
-        """Command the motor to move to the nearest equivalent angle (0-360).
-        Calculates the closest absolute target based on current position.
-        Non-blocking — call is_at_position() to poll for completion."""
-
-    @abstractmethod
-    def get_position(self) -> float | None:
-        """Read the current motor position in degrees (absolute/multi-turn).
-        Returns None on error."""
-
-    @abstractmethod
-    def is_at_position(self) -> bool:
-        """Poll whether the motor has reached the target position."""
-
-    @abstractmethod
-    def is_running(self) -> bool:
-        """Check if the motor is currently running."""
-
-    @abstractmethod
-    def shutdown(self) -> None:
-        """Release hardware resources."""
-
-
-class CANMotorController(MotorController):
+class CANMotorController:
     """Motor controller for LK motors via Waveshare RS485 CAN HAT (MCP2515).
 
     Uses python-can with the socketcan interface. The CAN HAT must be
@@ -97,7 +56,6 @@ class CANMotorController(MotorController):
             logger.error("Cannot go_to_angle: failed to read current position")
             return
 
-        # Find the nearest absolute position that corresponds to this angle
         target = self._nearest_target(current, angle)
         logger.info(
             "go_to_angle: current=%.2f, target_angle=%.2f, absolute_target=%.2f",
@@ -166,21 +124,11 @@ class CANMotorController(MotorController):
 
     @staticmethod
     def _nearest_target(current: float, angle: float) -> float:
-        """Find the nearest absolute position that matches the desired angle.
-
-        Example: current=737, angle=0 -> returns 720 (not 0)
-                 current=737, angle=90 -> returns 720+90=810? No — 737%360=17,
-                 so nearest 90 is 720+90=810 (forward 73 deg) vs 360+90=450
-                 (backward 287 deg) -> picks 810.
-        """
-        # Which full rotation are we in?
+        """Find the nearest absolute position that matches the desired angle."""
         base = (current // 360) * 360
-        # Two candidates: this rotation and the adjacent one
         candidate_a = base + angle
         candidate_b = candidate_a + 360
         candidate_c = candidate_a - 360
-
-        # Pick whichever is closest to current position
         candidates = [candidate_a, candidate_b, candidate_c]
         return min(candidates, key=lambda c: abs(c - current))
 
@@ -216,42 +164,3 @@ class CANMotorController(MotorController):
         if message is None:
             logger.warning("No CAN response received")
         return message
-
-
-class MockMotorController(MotorController):
-    """Mock motor controller for development and testing."""
-
-    def __init__(self):
-        self._running = False
-        self._at_position = True
-
-    def start(self, rpm: float = 550.0) -> None:
-        logger.info("MockMotor: start (rpm=%.1f)", rpm)
-        self._running = True
-        self._at_position = False
-
-    def stop(self) -> None:
-        logger.info("MockMotor: stop")
-        self._running = False
-
-    def go_to_position(self, position: float, speed_limit: float = 100.0) -> None:
-        logger.info("MockMotor: go_to_position (position=%.2f)", position)
-        self._running = False
-        self._at_position = True
-
-    def go_to_angle(self, angle: float, speed_limit: float = 100.0) -> None:
-        logger.info("MockMotor: go_to_angle (angle=%.2f)", angle)
-        self._running = False
-        self._at_position = True
-
-    def get_position(self) -> float | None:
-        return 0.0
-
-    def is_at_position(self) -> bool:
-        return self._at_position
-
-    def is_running(self) -> bool:
-        return self._running
-
-    def shutdown(self) -> None:
-        logger.info("MockMotor: shutdown")

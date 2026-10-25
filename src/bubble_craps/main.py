@@ -5,12 +5,12 @@ import threading
 import time
 from pathlib import Path
 
-from bubble_craps.camera import MockCamera, PiCamera
+from bubble_craps.camera import PiCamera
 from bubble_craps.config import load_config, save_trigger_config
 from bubble_craps.detector import DiceDetector
-from bubble_craps.motor import CANMotorController, MockMotorController
+from bubble_craps.motor import CANMotorController
 from bubble_craps.mqtt_client import MqttClient
-from bubble_craps.ring_light import MockRingLightController
+from bubble_craps.ring_light import NeoPixelRingLightController
 from bubble_craps.state_machine import State, StateMachine
 
 logger = logging.getLogger(__name__)
@@ -23,15 +23,6 @@ def setup_logging() -> None:
     )
 
 
-def is_raspberry_pi() -> bool:
-    """Check if we're running on a Raspberry Pi."""
-    try:
-        with open("/proc/device-tree/model") as f:
-            return "raspberry pi" in f.read().lower()
-    except FileNotFoundError:
-        return False
-
-
 def main() -> None:
     setup_logging()
 
@@ -39,23 +30,18 @@ def main() -> None:
     config = load_config(config_path)
     logger.info("Configuration loaded")
 
-    # Initialize hardware — use real implementations on Pi, mocks otherwise
-    on_pi = is_raspberry_pi()
+    # Initialize hardware
+    motor = CANMotorController(
+        channel=config.motor.can_channel,
+        can_id=config.motor.can_id,
+    )
+    ring_light = NeoPixelRingLightController(
+        gpio_pin=config.ring_light.gpio_pin,
+        num_leds=config.ring_light.num_leds,
+        brightness=config.ring_light.idle_brightness,
+    )
 
-    if on_pi:
-        motor = CANMotorController(
-            channel=config.motor.can_channel,
-            can_id=config.motor.can_id,
-        )
-    else:
-        motor = MockMotorController()
-
-    ring_light = MockRingLightController()  # Mock until GPIO wiring is done
-
-    if on_pi:
-        camera = PiCamera(config.camera)
-    else:
-        camera = MockCamera(config.camera)
+    camera = PiCamera(config.camera)
 
     detector = DiceDetector(config.detection)
 
