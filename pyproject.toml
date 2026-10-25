@@ -16,8 +16,8 @@ dependencies = [
 [project.optional-dependencies]
 pi = [
     "picamera2>=0.3",
-    "RPi.GPIO>=0.7",
-    "gpiozero>=2.0",
+    "rpi_ws281x>=5.0",
+    "python-can>=4.0",
 ]
 dev = [
     "pytest>=7.0",

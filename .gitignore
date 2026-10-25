@@ -1,3 +1,6 @@
 *.jpg
+__pycache__/
+*.pyc
 PRD.md
 TODO.md
+CLEANUP.md
