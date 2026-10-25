@@ -46,7 +46,7 @@ def main() -> None:
 
     detector = DiceDetector(config.detection)
 
-    # State machine and MQTT client reference each other, so we wire them up in steps
+    # MQTT client and command handler
     state_machine = None
 
     def handle_command(payload: dict) -> None:
@@ -66,7 +66,7 @@ def main() -> None:
                     mqtt_client.publish_status(state_machine._build_status())
         elif action == "status":
             if state_machine:
-                state_machine.mqtt_client.publish_status(state_machine._build_status())
+                mqtt_client.publish_status(state_machine._build_status())
         elif action == "clear_error":
             if state_machine:
                 state_machine.clear_error()
@@ -74,7 +74,14 @@ def main() -> None:
             logger.warning("Unknown command action: %s", action)
 
     mqtt_client = MqttClient(config.mqtt, on_command=handle_command)
-    state_machine = StateMachine(config, motor, ring_light, camera, detector, mqtt_client)
+
+    # Wire state machine events to MQTT
+    state_machine = StateMachine(
+        config, motor, ring_light, camera, detector,
+        on_status=mqtt_client.publish_status,
+        on_result=mqtt_client.publish_result,
+        on_image=mqtt_client.publish_image,
+    )
 
     # Connect to MQTT
     mqtt_client.connect()

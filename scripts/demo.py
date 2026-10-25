@@ -1,99 +1,38 @@
 #!/usr/bin/env python3
 """Run the full roll-detect cycle without MQTT.
 
-Loops: roll -> park -> capture -> detect -> print result -> repeat
+Uses the same state machine as production, but wires events to console
+output and optional image saving instead of MQTT.
 
 Usage:
   python3 scripts/demo.py                # continuous rolls
   python3 scripts/demo.py --count 5      # 5 rolls then stop
   python3 scripts/demo.py --delay 5      # 5 seconds between rolls
+  python3 scripts/demo.py --save-images  # save captures to demo_out/
 """
 
 import argparse
 import logging
-import random
+import signal
 import sys
+import threading
 import time
 from pathlib import Path
 
-import cv2
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from bubble_craps.camera import PiCamera
 from bubble_craps.config import load_config
 from bubble_craps.detector import DiceDetector
 from bubble_craps.motor import CANMotorController
 from bubble_craps.ring_light import NeoPixelRingLightController
+from bubble_craps.state_machine import State, StateMachine
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-
-def init_camera(config):
-    """Initialize the Pi camera."""
-    from picamera2 import Picamera2
-    import numpy as np
-
-    cam = Picamera2()
-    cam.configure(cam.create_still_configuration(main={"size": config.camera.resolution}))
-    cam.start()
-
-    if config.camera.exposure_time_us > 0:
-        cam.set_controls({
-            "AeEnable": False,
-            "ExposureTime": config.camera.exposure_time_us,
-            "AnalogueGain": 1.0,
-        })
-        print(f"  Fixed exposure: {config.camera.exposure_time_us} us")
-    else:
-        print("  Auto exposure")
-
-    time.sleep(2)  # let camera settle
-    return cam
-
-
-def capture(cam) -> "np.ndarray":
-    """Capture a frame as a numpy array."""
-    import numpy as np
-    return cam.capture_array()
-
-
-def do_roll(motor, config, light=None) -> None:
-    """Spin, stop, park, settle."""
-    mc = config.motor
-
-    rpm = random.uniform(mc.roll_rpm_min, mc.roll_rpm_max)
-    duration = random.uniform(mc.roll_duration_min_sec, mc.roll_duration_max_sec)
-
-    if light:
-        light.set_pattern("rolling")
-
-    print(f"  Rolling: {rpm:.0f} RPM for {duration:.1f}s")
-    motor.spin(rpm=rpm)
-    time.sleep(duration)
-
-    print("  Stopping...")
-    motor.stop()
-    time.sleep(0.5)
-
-    if light:
-        light.set_pattern("idle")
-
-    print(f"  Parking at {mc.park_position} deg...")
-    motor.go_to_angle(mc.park_position, speed_limit=mc.park_speed_limit)
-
-    deadline = time.monotonic() + mc.park_timeout_sec
-    while not motor.is_at_position():
-        if time.monotonic() > deadline:
-            print("  WARNING: Park timeout!")
-            break
-        time.sleep(mc.park_poll_interval_sec)
-
-    print(f"  Settling for {mc.settling_time_sec}s...")
-    time.sleep(mc.settling_time_sec)
 
 
 def main():
@@ -109,6 +48,10 @@ def main():
 
     can_id = int(args.can_id, 16) if isinstance(args.can_id, str) else args.can_id
 
+    if args.save_images:
+        out_dir = Path("demo_out")
+        out_dir.mkdir(exist_ok=True)
+
     # Init hardware
     print("Initializing motor...")
     try:
@@ -118,7 +61,7 @@ def main():
         sys.exit(1)
 
     print("Initializing camera...")
-    cam = init_camera(config)
+    camera = PiCamera(config.camera)
 
     print("Initializing ring light...")
     try:
@@ -133,12 +76,44 @@ def main():
 
     detector = DiceDetector(config.detection)
 
-    if args.save_images:
-        out_dir = Path("demo_out")
-        out_dir.mkdir(exist_ok=True)
-
-    roll_num = 0
+    # Track results for summary
     results = []
+    roll_num = [0]  # mutable so callbacks can update
+
+    # Callbacks — wire state machine events to console output
+    def on_status(status):
+        logger.info("Status: state=%s", status["state"])
+
+    def on_result(result):
+        roll_num[0] += 1
+        if result["roll_status"] == "ok":
+            print(f"  >> Die 1: {result['die1']}  Die 2: {result['die2']}  Total: {result['total']}")
+            results.append(result["total"])
+        else:
+            print(f"  >> DETECTION FAILED: {result['roll_status_reason']}")
+
+    def on_image(image_bytes):
+        if args.save_images:
+            path = out_dir / f"roll_{roll_num[0]:03d}.jpg"
+            path.write_bytes(image_bytes)
+            print(f"  Saved: {path}")
+
+    # Build state machine with console callbacks
+    state_machine = StateMachine(
+        config, motor, light, camera, detector,
+        on_status=on_status,
+        on_result=on_result,
+        on_image=on_image,
+    )
+
+    # Graceful shutdown
+    shutdown_event = threading.Event()
+
+    def signal_handler(sig, frame):
+        print("\n\nInterrupted!")
+        shutdown_event.set()
+
+    signal.signal(signal.SIGINT, signal_handler)
 
     print("\n" + "=" * 50)
     print("  BUBBLE CRAPS DEMO")
@@ -148,67 +123,32 @@ def main():
     print("  Press Ctrl+C to stop\n")
 
     try:
-        while True:
-            roll_num += 1
-            if args.count > 0 and roll_num > args.count:
+        while not shutdown_event.is_set():
+            if args.count > 0 and roll_num[0] >= args.count:
                 break
 
-            print(f"\n--- Roll #{roll_num} ---")
+            print(f"\n--- Roll #{roll_num[0] + 1} ---")
+            state_machine.trigger_roll()
 
-            # Roll
-            do_roll(motor, config, light)
-
-            # Capture — full brightness white for the photo
-            if light:
-                light.set_pattern("capture")
-                time.sleep(0.3)  # let LEDs stabilize
-            print("  Capturing image...")
-            image = capture(cam)
-            if light:
-                light.set_pattern("idle")
-
-            if args.save_images:
-                cv2.imwrite(str(out_dir / f"roll_{roll_num:03d}.jpg"), image)
-                print(f"  Saved: demo_out/roll_{roll_num:03d}.jpg")
-
-            # Detect
-            print("  Detecting dice...")
-            result = detector.detect(image)
-
-            if result is None:
-                print("  DETECTION FAILED")
-                if args.save_images:
-                    cv2.imwrite(str(out_dir / f"roll_{roll_num:03d}_FAIL.jpg"), image)
-            else:
-                total = result["die1"] + result["die2"]
-                print(f"  >> Die 1: {result['die1']}  Die 2: {result['die2']}  Total: {total}")
-                results.append(total)
-
-            # Wait before next roll
-            if args.count == 0 or roll_num < args.count:
-                print(f"  Waiting {args.delay}s...")
-                time.sleep(args.delay)
-
-    except KeyboardInterrupt:
-        print("\n\nInterrupted!")
+            if not shutdown_event.is_set():
+                shutdown_event.wait(timeout=args.delay)
 
     finally:
         print("\nShutting down...")
         try:
             motor.stop()
             motor.shutdown()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("Motor shutdown failed: %s", e)
         try:
             if light:
                 light.off()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("Ring light shutdown failed: %s", e)
         try:
-            cam.stop()
-            cam.close()
-        except Exception:
-            pass
+            camera.close()
+        except Exception as e:
+            logger.error("Camera shutdown failed: %s", e)
 
         # Summary
         if results:

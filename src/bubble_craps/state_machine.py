@@ -25,15 +25,24 @@ class State(Enum):
 
 
 class StateMachine:
-    """Core state machine controlling the bubble craps roll cycle."""
+    """Core state machine controlling the bubble craps roll cycle.
 
-    def __init__(self, config: AppConfig, motor, ring_light, camera, detector, mqtt_client):
+    The state machine orchestrates hardware and emits events via callbacks.
+    It has no knowledge of MQTT, databases, or any specific output — the
+    caller wires callbacks to whatever output they need.
+    """
+
+    def __init__(self, config: AppConfig, motor, ring_light, camera, detector,
+                 on_status=None, on_result=None, on_image=None):
         self.config = config
         self.motor = motor
         self.ring_light = ring_light
         self.camera = camera
         self.detector = detector
-        self.mqtt_client = mqtt_client
+
+        self.on_status = on_status
+        self.on_result = on_result
+        self.on_image = on_image
 
         self.state = State.IDLE
         self.last_roll_id: str | None = None
@@ -48,7 +57,7 @@ class StateMachine:
         return int(time.monotonic() - self._start_time)
 
     def transition(self, new_state: State, error_reason: str | None = None) -> None:
-        """Transition to a new state, updating the ring light and publishing status."""
+        """Transition to a new state, updating the ring light and emitting status."""
         logger.info("State transition: %s -> %s", self.state.value, new_state.value)
         self.state = new_state
         if new_state == State.ERROR:
@@ -56,7 +65,8 @@ class StateMachine:
         elif new_state == State.IDLE:
             self._error_reason = None
         self._update_ring_light()
-        self.mqtt_client.publish_status(self._build_status())
+        if self.on_status:
+            self.on_status(self._build_status())
 
     def _update_ring_light(self) -> None:
         """Set the ring light pattern based on the current state."""
@@ -71,7 +81,8 @@ class StateMachine:
             State.ERROR: "error",
         }
         pattern = patterns.get(self.state, "off")
-        self.ring_light.set_pattern(pattern)
+        if self.ring_light:
+            self.ring_light.set_pattern(pattern)
 
     def trigger_roll(self) -> None:
         """Initiate a roll cycle. Called by timer or MQTT command."""
@@ -168,13 +179,14 @@ class StateMachine:
                     self.transition(State.ERROR, error_reason="camera_failure")
                     return
 
-        # Downsample and publish image regardless of detection outcome
+        # Downsample image for output
         image_bytes = self._encode_image(image)
 
         # Integrity check — only on successful detection
         if result is not None and self._check_mechanism_failure(result):
             logger.error("Mechanism failure detected — same pips and positions as previous roll")
-            self.mqtt_client.publish_image(image_bytes)
+            if self.on_image:
+                self.on_image(image_bytes)
             self.transition(State.ERROR, error_reason="mechanism_failure")
             return
 
@@ -211,8 +223,10 @@ class StateMachine:
                 "device_id": self.config.mqtt.client_id,
             }
 
-        self.mqtt_client.publish_result(roll_result)
-        self.mqtt_client.publish_image(image_bytes)
+        if self.on_result:
+            self.on_result(roll_result)
+        if self.on_image:
+            self.on_image(image_bytes)
 
         self.transition(State.IDLE)
 
