@@ -14,29 +14,28 @@ class DiceDetector:
     Pipeline:
       1. Apply ROI mask (circular, to ignore area outside the bowl)
       2. Grayscale + blur + sharpen
-      3. Global threshold (230) to isolate white dice
+      3. Global threshold to isolate white dice
       4. Find square contours (dice faces) filtered by size/aspect/rectangularity
       5. Perspective-correct each die face
       6. Detect pips via blob detection
       7. Validate (exactly 2 dice, 1-6 pips each)
     """
 
-    THRESHOLD = 230
     WARP_SIZE = 200
 
     def __init__(self, config: DetectionConfig):
         self.config = config
 
-        # Derive area bounds from die_size_px (±15%)
+        # Derive area bounds from die_size_px and configured tolerances
         die = config.die_size_px
-        self.min_die_area = int((die * 0.85) ** 2)
-        self.max_die_area = int((die * 1.1) ** 2)
+        self.min_die_area = int((die * config.die_area_tolerance_low) ** 2)
+        self.max_die_area = int((die * config.die_area_tolerance_high) ** 2)
 
-        # Derive pip area bounds from pip_diameter_px (±40%)
+        # Derive pip area bounds from pip_diameter_px and configured tolerances
         pip_r = config.pip_diameter_px / 2
         pip_area = 3.14159 * pip_r ** 2
-        self.min_pip_area = int(pip_area * 0.6)
-        self.max_pip_area = int(pip_area * 1.6)
+        self.min_pip_area = int(pip_area * config.pip_area_tolerance_low)
+        self.max_pip_area = int(pip_area * config.pip_area_tolerance_high)
 
         logger.info("Die area range: %d-%d, pip area range: %d-%d",
                      self.min_die_area, self.max_die_area,
@@ -102,8 +101,9 @@ class DiceDetector:
 
     def _threshold(self, gray: np.ndarray) -> np.ndarray:
         """Global threshold to isolate white dice on green felt."""
-        _, thresh = cv2.threshold(gray, self.THRESHOLD, 255, cv2.THRESH_BINARY)
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+        _, thresh = cv2.threshold(gray, self.config.threshold, 255, cv2.THRESH_BINARY)
+        k = self.config.morph_kernel
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
         thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
         return thresh
 
@@ -125,11 +125,11 @@ class DiceDetector:
             if w == 0 or h == 0:
                 continue
             aspect = max(w, h) / min(w, h)
-            if aspect > 1.4:
+            if aspect > self.config.max_aspect_ratio:
                 continue
 
             extent = area / (w * h)
-            if extent < 0.65:
+            if extent < self.config.min_extent:
                 continue
 
             box = cv2.boxPoints(rect)
@@ -180,9 +180,9 @@ class DiceDetector:
         params.minArea = self.min_pip_area
         params.maxArea = self.max_pip_area
         params.filterByCircularity = True
-        params.minCircularity = 0.2
+        params.minCircularity = self.config.min_circularity
         params.filterByConvexity = True
-        params.minConvexity = 0.2
+        params.minConvexity = self.config.min_convexity
         params.filterByInertia = False
 
         detector = cv2.SimpleBlobDetector_create(params)

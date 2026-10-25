@@ -45,6 +45,7 @@ mqtt:
 
 # Detection settings
 detection:
+  # Physical setup — set during calibration
   max_retries: 1
   calibration_file: "calibration.json"
   position_tolerance_px: 20
@@ -53,3 +54,14 @@ detection:
   roi_radius: 650               # ROI circle radius in pixels
   die_size_px: 305              # die face width in pixels
   pip_diameter_px: 25           # pip diameter in pixels
+  # Pipeline tuning — adjust if detection is unreliable
+  threshold: 230                # brightness cutoff for white dice
+  morph_kernel: 15              # morphology cleanup kernel size
+  die_area_tolerance_low: 0.85  # min die size as fraction of die_size_px
+  die_area_tolerance_high: 1.1  # max die size as fraction of die_size_px
+  pip_area_tolerance_low: 0.6   # min pip size as fraction of expected
+  pip_area_tolerance_high: 1.6  # max pip size as fraction of expected
+  max_aspect_ratio: 1.4         # max width/height ratio for a square
+  min_extent: 0.65              # min fill of bounding box
+  min_circularity: 0.2          # min roundness for pip blobs
+  min_convexity: 0.2            # min convexity for pip blobs

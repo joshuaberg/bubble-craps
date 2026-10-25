@@ -79,7 +79,8 @@ class MqttConfig:
 
 @dataclass
 class DetectionConfig:
-    max_retries: int = 2
+    # Physical setup — set during calibration
+    max_retries: int = 1
     calibration_file: str = "calibration.json"
     position_tolerance_px: int = 20
     roi_center_x: int = 0       # 0 = auto (image center)
@@ -87,6 +88,17 @@ class DetectionConfig:
     roi_radius: int = 0         # 0 = no ROI mask
     die_size_px: int = 305      # approximate die face width in pixels
     pip_diameter_px: int = 25   # approximate pip diameter in pixels
+    # Pipeline tuning — adjust if detection is unreliable
+    threshold: int = 230
+    morph_kernel: int = 15
+    die_area_tolerance_low: float = 0.85
+    die_area_tolerance_high: float = 1.1
+    pip_area_tolerance_low: float = 0.6
+    pip_area_tolerance_high: float = 1.6
+    max_aspect_ratio: float = 1.4
+    min_extent: float = 0.65
+    min_circularity: float = 0.2
+    min_convexity: float = 0.2
 
 
 @dataclass
