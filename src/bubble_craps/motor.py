@@ -36,8 +36,8 @@ class CANMotorController:
         logger.info("Opening CAN bus on %s", channel)
         self._bus = can.Bus(interface="socketcan", channel=channel)
 
-        if not self._turn_on():
-            logger.error("Failed to turn on motor")
+        self.stop()
+        self.turn_off()
 
     def spin(self, rpm: float = 550.0) -> None:
         cdps = int(rpm * 360 / 60 * 100)
@@ -135,7 +135,7 @@ class CANMotorController:
 
     def shutdown(self) -> None:
         self.stop()
-        self._turn_off()
+        self.turn_off()
         self._bus.shutdown()
         logger.info("CAN bus shut down")
 
@@ -168,7 +168,7 @@ class CANMotorController:
         candidates = [candidate_a, candidate_b, candidate_c]
         return min(candidates, key=lambda c: abs(c - current))
 
-    def _turn_on(self) -> bool:
+    def turn_on(self) -> bool:
         data = [0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
         if self._send(data):
             if self._read_response() is not None:
@@ -176,7 +176,7 @@ class CANMotorController:
                 return True
         return False
 
-    def _turn_off(self) -> bool:
+    def turn_off(self) -> bool:
         data = [0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
         if self._send(data):
             if self._read_response() is not None:

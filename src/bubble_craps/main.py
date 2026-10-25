@@ -117,6 +117,7 @@ def main() -> None:
                     _last_heartbeat = now
     finally:
         logger.info("Shutting down...")
+        motor.shutdown()
         ring_light.off()
         camera.close()
         mqtt_client.disconnect()

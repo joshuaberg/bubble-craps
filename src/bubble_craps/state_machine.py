@@ -24,6 +24,10 @@ class State(Enum):
     ERROR = "ERROR"
 
 
+_MAX_CONSECUTIVE_UNEXPECTED_FAILURES = 3
+_MOTOR_ON_DELAY_SEC = 0.2
+
+
 class StateMachine:
     """Core state machine controlling the bubble craps roll cycle.
 
@@ -51,6 +55,8 @@ class StateMachine:
 
         # For mechanism integrity check
         self._previous_roll: dict | None = None
+
+        self._consecutive_unexpected_failures = 0
 
     @property
     def uptime_sec(self) -> int:
@@ -107,6 +113,34 @@ class StateMachine:
     def _run_roll_cycle(self) -> None:
         """Execute the full roll cycle: ROLLING -> SETTLING -> CAPTURE -> ANALYZE -> PUBLISH."""
         roll_id = uuid.uuid4().hex
+
+        self.motor.turn_on()
+        time.sleep(_MOTOR_ON_DELAY_SEC)
+
+        try:
+            self._run_roll_cycle_inner(roll_id)
+        except Exception:
+            logger.exception("Unexpected error during roll cycle %s", roll_id)
+            self._consecutive_unexpected_failures += 1
+            if self._consecutive_unexpected_failures >= _MAX_CONSECUTIVE_UNEXPECTED_FAILURES:
+                logger.error(
+                    "Entering ERROR state after %d consecutive unexpected failures",
+                    self._consecutive_unexpected_failures,
+                )
+                self.transition(State.ERROR, error_reason="repeated_unexpected_failure")
+            else:
+                logger.warning(
+                    "Returning to IDLE (unexpected failure %d/%d)",
+                    self._consecutive_unexpected_failures,
+                    _MAX_CONSECUTIVE_UNEXPECTED_FAILURES,
+                )
+                self.transition(State.IDLE)
+        finally:
+            self.motor.stop()
+            self.motor.turn_off()
+
+    def _run_roll_cycle_inner(self, roll_id: str) -> None:
+        """Inner roll cycle, called within motor on/off and error handling."""
 
         # ROLLING — randomize both speed and duration for true randomness
         self.transition(State.ROLLING)
@@ -228,6 +262,7 @@ class StateMachine:
         if self.on_image:
             self.on_image(image_bytes)
 
+        self._consecutive_unexpected_failures = 0
         self.transition(State.IDLE)
 
     def _encode_image(self, image) -> bytes:
