@@ -2,6 +2,7 @@ import logging
 import random
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 
@@ -9,8 +10,7 @@ from bubble_craps.config import AppConfig
 
 logger = logging.getLogger(__name__)
 
-_CAPTURE_MAX_ATTEMPTS = 2
-_CAPTURE_RETRY_DELAY_SEC = 1.0
+_MOTOR_ON_DELAY_SEC = 0.2
 
 
 class State(Enum):
@@ -20,24 +20,37 @@ class State(Enum):
     SETTLING = "SETTLING"
     CAPTURE = "CAPTURE"
     ANALYZE = "ANALYZE"
-    PUBLISH = "PUBLISH"
     ERROR = "ERROR"
 
 
-_MAX_CONSECUTIVE_UNEXPECTED_FAILURES = 3
-_MOTOR_ON_DELAY_SEC = 0.2
+@dataclass
+class CaptureAttempt:
+    """Record of a single capture+detect attempt."""
+    capture: str   # "ok" or "failed"
+    detect: str    # "ok", "null", or "skipped" (if capture failed)
+
+
+@dataclass
+class RollOutcome:
+    """Result of a single roll or retry_capture call."""
+    status: str             # "ok", "detection_failed", "camera_failure", "mechanism_failure"
+    roll_id: str
+    result: dict | None     # {"die1": int, "die2": int, "positions": [...]} or None
+    image_bytes: bytes | None
+    attempt: CaptureAttempt
 
 
 class StateMachine:
-    """Core state machine controlling the bubble craps roll cycle.
+    """Orchestrates hardware through the roll cycle and reports outcomes.
 
-    The state machine orchestrates hardware and emits events via callbacks.
-    It has no knowledge of MQTT, databases, or any specific output — the
-    caller wires callbacks to whatever output they need.
+    The state machine drives hardware (motor, camera, ring light) and
+    transitions through states for telemetry. It does NOT decide what to do
+    about errors — it reports outcomes via RollOutcome and lets the caller
+    (roll supervisor) decide retry/error policy.
     """
 
     def __init__(self, config: AppConfig, motor, ring_light, camera, detector,
-                 on_status=None, on_result=None, on_image=None):
+                 on_status=None):
         self.config = config
         self.motor = motor
         self.ring_light = ring_light
@@ -45,8 +58,6 @@ class StateMachine:
         self.detector = detector
 
         self.on_status = on_status
-        self.on_result = on_result
-        self.on_image = on_image
 
         self.state = State.IDLE
         self.last_roll_id: str | None = None
@@ -55,8 +66,6 @@ class StateMachine:
 
         # For mechanism integrity check
         self._previous_roll: dict | None = None
-
-        self._consecutive_unexpected_failures = 0
 
     @property
     def uptime_sec(self) -> int:
@@ -74,75 +83,33 @@ class StateMachine:
         if self.on_status:
             self.on_status(self._build_status())
 
-    def _update_ring_light(self) -> None:
-        """Set the ring light pattern based on the current state."""
-        patterns = {
-            State.IDLE: "idle",
-            State.TRIGGERED: "rolling",
-            State.ROLLING: "rolling",
-            State.SETTLING: "rolling",
-            State.CAPTURE: "capture",
-            State.ANALYZE: "capture",
-            State.PUBLISH: "success",
-            State.ERROR: "error",
-        }
-        pattern = patterns.get(self.state, "off")
-        if self.ring_light:
-            self.ring_light.set_pattern(pattern)
+    def run_roll(self) -> RollOutcome:
+        """Full roll cycle: motor on, spin, park, settle, capture, detect.
 
-    def trigger_roll(self) -> None:
-        """Initiate a roll cycle. Called by timer or MQTT command."""
-        if self.state == State.ERROR:
-            logger.warning("Cannot trigger roll while in ERROR state")
-            return
-        if self.state != State.IDLE:
-            logger.warning("Cannot trigger roll from state %s", self.state.value)
-            return
-
-        self.transition(State.TRIGGERED)
-        self._run_roll_cycle()
-
-    def clear_error(self) -> None:
-        """Clear the ERROR state and return to IDLE."""
-        if self.state != State.ERROR:
-            logger.warning("clear_error called but not in ERROR state")
-            return
-        logger.info("Error cleared, returning to IDLE")
-        self.transition(State.IDLE)
-
-    def _run_roll_cycle(self) -> None:
-        """Execute the full roll cycle: ROLLING -> SETTLING -> CAPTURE -> ANALYZE -> PUBLISH."""
+        Returns a RollOutcome describing what happened. Motor is always
+        stopped and turned off in the finally block. Unexpected exceptions
+        propagate after motor cleanup so the supervisor can handle them.
+        """
         roll_id = uuid.uuid4().hex
+        self.transition(State.TRIGGERED)
 
         self.motor.turn_on()
         time.sleep(_MOTOR_ON_DELAY_SEC)
 
         try:
-            self._run_roll_cycle_inner(roll_id)
-        except Exception:
-            logger.exception("Unexpected error during roll cycle %s", roll_id)
-            self._consecutive_unexpected_failures += 1
-            if self._consecutive_unexpected_failures >= _MAX_CONSECUTIVE_UNEXPECTED_FAILURES:
-                logger.error(
-                    "Entering ERROR state after %d consecutive unexpected failures",
-                    self._consecutive_unexpected_failures,
-                )
-                self.transition(State.ERROR, error_reason="repeated_unexpected_failure")
-            else:
-                logger.warning(
-                    "Returning to IDLE (unexpected failure %d/%d)",
-                    self._consecutive_unexpected_failures,
-                    _MAX_CONSECUTIVE_UNEXPECTED_FAILURES,
-                )
-                self.transition(State.IDLE)
+            self._do_rolling(roll_id)
+            self._do_settling()
+            return self._do_capture_and_detect(roll_id)
         finally:
             self.motor.stop()
             self.motor.turn_off()
 
-    def _run_roll_cycle_inner(self, roll_id: str) -> None:
-        """Inner roll cycle, called within motor on/off and error handling."""
+    def retry_capture(self, roll_id: str) -> RollOutcome:
+        """Re-capture and re-detect without re-rolling. Dice are still there."""
+        return self._do_capture_and_detect(roll_id)
 
-        # ROLLING — randomize both speed and duration for true randomness
+    def _do_rolling(self, roll_id: str) -> None:
+        """ROLLING phase: spin motor at random RPM for random duration."""
         self.transition(State.ROLLING)
         rpm = random.uniform(
             self.config.motor.roll_rpm_min,
@@ -157,7 +124,8 @@ class StateMachine:
         time.sleep(duration)
         self.motor.stop()
 
-        # SETTLING — move to park position and wait
+    def _do_settling(self) -> None:
+        """SETTLING phase: park motor and wait for dice to settle."""
         self.transition(State.SETTLING)
         self.motor.go_to_angle(
             self.config.motor.park_position,
@@ -173,97 +141,53 @@ class StateMachine:
 
         time.sleep(self.config.motor.settling_time_sec)
 
-        # CAPTURE — separate retry loop for hardware failures
-        image = None
-        for capture_attempt in range(_CAPTURE_MAX_ATTEMPTS):
-            self.transition(State.CAPTURE)
-            try:
-                image = self.camera.capture()
-                break
-            except Exception as exc:
-                logger.warning("Camera capture failed (attempt %d/%d): %s",
-                               capture_attempt + 1, _CAPTURE_MAX_ATTEMPTS, exc)
-                if capture_attempt < _CAPTURE_MAX_ATTEMPTS - 1:
-                    time.sleep(_CAPTURE_RETRY_DELAY_SEC)
+    def _do_capture_and_detect(self, roll_id: str) -> RollOutcome:
+        """CAPTURE + ANALYZE: single attempt to photograph and detect dice."""
+        self.transition(State.CAPTURE)
+        try:
+            image = self.camera.capture()
+        except Exception as exc:
+            logger.warning("Camera capture failed: %s", exc)
+            return RollOutcome(
+                status="camera_failure",
+                roll_id=roll_id,
+                result=None,
+                image_bytes=None,
+                attempt=CaptureAttempt(capture="failed", detect="skipped"),
+            )
 
-        if image is None:
-            logger.error("Camera hardware failure after %d attempts", _CAPTURE_MAX_ATTEMPTS)
-            self.transition(State.ERROR, error_reason="camera_failure")
-            return
-
-        # ANALYZE — detection retry loop
-        result = None
-        detection_attempts = self.config.detection.max_retries + 1
-
-        for attempt in range(detection_attempts):
-            self.transition(State.ANALYZE)
-            result = self.detector.detect(image)
-
-            if result is not None:
-                break
-
-            if attempt < detection_attempts - 1:
-                logger.warning("Detection failed, retrying (%d/%d)", attempt + 1, detection_attempts - 1)
-                # Re-capture for next detection attempt
-                self.transition(State.CAPTURE)
-                try:
-                    image = self.camera.capture()
-                except Exception as exc:
-                    logger.error("Camera failed during detection retry: %s", exc)
-                    self.transition(State.ERROR, error_reason="camera_failure")
-                    return
-
-        # Downsample image for output
+        self.transition(State.ANALYZE)
+        result = self.detector.detect(image)
         image_bytes = self._encode_image(image)
 
-        # Integrity check — only on successful detection
-        if result is not None and self._check_mechanism_failure(result):
+        if result is None:
+            return RollOutcome(
+                status="detection_failed",
+                roll_id=roll_id,
+                result=None,
+                image_bytes=image_bytes,
+                attempt=CaptureAttempt(capture="ok", detect="null"),
+            )
+
+        # Mechanism failure check
+        if self._check_mechanism_failure(result):
             logger.error("Mechanism failure detected — same pips and positions as previous roll")
-            if self.on_image:
-                self.on_image(image_bytes)
-            self.transition(State.ERROR, error_reason="mechanism_failure")
-            return
+            return RollOutcome(
+                status="mechanism_failure",
+                roll_id=roll_id,
+                result=result,
+                image_bytes=image_bytes,
+                attempt=CaptureAttempt(capture="ok", detect="ok"),
+            )
 
-        # PUBLISH
-        self.transition(State.PUBLISH)
-
-        timestamp = datetime.now(timezone.utc).isoformat()
-
-        if result is not None:
-            self._previous_roll = result
-            self.last_roll_id = roll_id
-            roll_result = {
-                "roll_id": roll_id,
-                "die1": result["die1"],
-                "die2": result["die2"],
-                "total": result["die1"] + result["die2"],
-                "roll_status": "ok",
-                "roll_status_reason": None,
-                "attempts": attempt + 1,
-                "timestamp": timestamp,
-                "device_id": self.config.mqtt.client_id,
-            }
-        else:
-            logger.warning("Detection failed after all attempts — publishing null roll")
-            roll_result = {
-                "roll_id": roll_id,
-                "die1": None,
-                "die2": None,
-                "total": None,
-                "roll_status": "detection_failed",
-                "roll_status_reason": "Could not detect exactly 2 dice",
-                "attempts": detection_attempts,
-                "timestamp": timestamp,
-                "device_id": self.config.mqtt.client_id,
-            }
-
-        if self.on_result:
-            self.on_result(roll_result)
-        if self.on_image:
-            self.on_image(image_bytes)
-
-        self._consecutive_unexpected_failures = 0
-        self.transition(State.IDLE)
+        self._previous_roll = result
+        return RollOutcome(
+            status="ok",
+            roll_id=roll_id,
+            result=result,
+            image_bytes=image_bytes,
+            attempt=CaptureAttempt(capture="ok", detect="ok"),
+        )
 
     def _encode_image(self, image) -> bytes:
         """Downsample and encode a numpy image to JPEG bytes for publishing."""
@@ -296,6 +220,21 @@ class StateMachine:
         )
 
         return positions_match
+
+    def _update_ring_light(self) -> None:
+        """Set the ring light pattern based on the current state."""
+        patterns = {
+            State.IDLE: "idle",
+            State.TRIGGERED: "rolling",
+            State.ROLLING: "rolling",
+            State.SETTLING: "rolling",
+            State.CAPTURE: "capture",
+            State.ANALYZE: "capture",
+            State.ERROR: "error",
+        }
+        pattern = patterns.get(self.state, "off")
+        if self.ring_light:
+            self.ring_light.set_pattern(pattern)
 
     def _build_status(self) -> dict:
         return {

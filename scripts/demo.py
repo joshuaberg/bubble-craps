@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Run the full roll-detect cycle without MQTT.
 
-Uses the same state machine as production, but wires events to console
-output and optional image saving instead of MQTT.
+Uses the same state machine as production, but prints results to console
+and optionally saves images instead of publishing via MQTT.
 
 Usage:
   python3 scripts/demo.py                # continuous rolls
@@ -16,7 +16,6 @@ import logging
 import signal
 import sys
 import threading
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -78,32 +77,14 @@ def main():
 
     # Track results for summary
     results = []
-    roll_num = [0]  # mutable so callbacks can update
+    roll_num = 0
 
-    # Callbacks — wire state machine events to console output
     def on_status(status):
         logger.info("Status: state=%s", status["state"])
 
-    def on_result(result):
-        roll_num[0] += 1
-        if result["roll_status"] == "ok":
-            print(f"  >> Die 1: {result['die1']}  Die 2: {result['die2']}  Total: {result['total']}")
-            results.append(result["total"])
-        else:
-            print(f"  >> DETECTION FAILED: {result['roll_status_reason']}")
-
-    def on_image(image_bytes):
-        if args.save_images:
-            path = out_dir / f"roll_{roll_num[0]:03d}.jpg"
-            path.write_bytes(image_bytes)
-            print(f"  Saved: {path}")
-
-    # Build state machine with console callbacks
     state_machine = StateMachine(
         config, motor, light, camera, detector,
         on_status=on_status,
-        on_result=on_result,
-        on_image=on_image,
     )
 
     # Graceful shutdown
@@ -124,11 +105,35 @@ def main():
 
     try:
         while not shutdown_event.is_set():
-            if args.count > 0 and roll_num[0] >= args.count:
+            if args.count > 0 and roll_num >= args.count:
                 break
 
-            print(f"\n--- Roll #{roll_num[0] + 1} ---")
-            state_machine.trigger_roll()
+            roll_num += 1
+            print(f"\n--- Roll #{roll_num} ---")
+
+            try:
+                outcome = state_machine.run_roll()
+            except Exception:
+                logger.exception("Unexpected error during roll")
+                continue
+
+            if outcome.status == "ok":
+                r = outcome.result
+                print(f"  >> Die 1: {r['die1']}  Die 2: {r['die2']}  Total: {r['die1'] + r['die2']}")
+                results.append(r["die1"] + r["die2"])
+            elif outcome.status == "detection_failed":
+                print("  >> DETECTION FAILED: Could not detect exactly 2 dice")
+            elif outcome.status == "camera_failure":
+                print("  >> CAMERA FAILURE")
+            elif outcome.status == "mechanism_failure":
+                print("  >> MECHANISM FAILURE: same dice as previous roll")
+
+            if args.save_images and outcome.image_bytes:
+                path = out_dir / f"roll_{roll_num:03d}.jpg"
+                path.write_bytes(outcome.image_bytes)
+                print(f"  Saved: {path}")
+
+            state_machine.transition(State.IDLE)
 
             if not shutdown_event.is_set():
                 shutdown_event.wait(timeout=args.delay)
