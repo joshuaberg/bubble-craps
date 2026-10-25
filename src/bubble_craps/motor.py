@@ -1,6 +1,17 @@
 import logging
+import struct
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class MotorStatus:
+    """Parsed status from a CAN response frame."""
+    temp_c: int
+    torque_milli_nm: int
+    speed_dps: int
+    angle_deg: float
 
 
 class CANMotorController:
@@ -12,11 +23,13 @@ class CANMotorController:
 
     DEFAULT_CAN_ID = 0x141
 
-    def __init__(self, channel: str = "can0", can_id: int = DEFAULT_CAN_ID):
+    def __init__(self, channel: str = "can0", can_id: int = DEFAULT_CAN_ID,
+                 torque_scale_factor: int = 645):
         import can
 
         self._can = can
         self._can_id = can_id
+        self._torque_scale_factor = torque_scale_factor  # "Taylor factor" — changes per motor model
         self._running = False
         self._target_position: float | None = None
 
@@ -26,7 +39,7 @@ class CANMotorController:
         if not self._turn_on():
             logger.error("Failed to turn on motor")
 
-    def start(self, rpm: float = 550.0) -> None:
+    def spin(self, rpm: float = 550.0) -> None:
         cdps = int(rpm * 360 / 60 * 100)
         data = [
             0xA2, 0x00, 0x00, 0x00,
@@ -47,7 +60,7 @@ class CANMotorController:
             self._running = False
             logger.info("Motor stopped")
 
-    def go_to_position(self, position: float, speed_limit: float = 100.0) -> None:
+    def go_to_abs_position(self, position: float, speed_limit: float = 100.0) -> None:
         self._go_to_target(position, speed_limit)
 
     def go_to_angle(self, angle: float, speed_limit: float = 100.0) -> None:
@@ -93,6 +106,29 @@ class CANMotorController:
         if at_target:
             self._running = False
         return at_target
+
+    def get_status(self) -> MotorStatus | None:
+        """Read motor state: temperature, torque, speed, and encoder position."""
+        data = [0x9C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        if not self._send(data):
+            return None
+
+        message = self._bus.recv(timeout=2)
+        if message is None:
+            logger.warning("No CAN response for status read")
+            return None
+
+        d = message.data
+        temp = struct.unpack_from("b", d, 1)[0]
+        torque_raw = struct.unpack_from("<h", d, 2)[0]
+        speed_dps = struct.unpack_from("<h", d, 4)[0]
+        encoder_14bit = struct.unpack_from("<H", d, 6)[0] >> 2
+        return MotorStatus(
+            temp_c=temp,
+            torque_milli_nm=torque_raw * self._torque_scale_factor // 1000,
+            speed_dps=speed_dps,
+            angle_deg=round(encoder_14bit * 360 / 16383, 2),
+        )
 
     def is_running(self) -> bool:
         return self._running

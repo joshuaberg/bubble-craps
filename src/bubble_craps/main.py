@@ -34,6 +34,7 @@ def main() -> None:
     motor = CANMotorController(
         channel=config.motor.can_channel,
         can_id=config.motor.can_id,
+        torque_scale_factor=config.motor.torque_scale_factor,
     )
     ring_light = NeoPixelRingLightController(
         gpio_pin=config.ring_light.gpio_pin,

@@ -55,7 +55,7 @@ def main():
         print(f"  Current: {pos:.2f} -> Target: {target:.2f}")
 
         # Fast move forward by N revolutions
-        motor.go_to_position(target, speed_limit=args.rpm)
+        motor.go_to_abs_position(target, speed_limit=args.rpm)
 
         deadline = time.monotonic() + 10.0
         while not motor.is_at_position():

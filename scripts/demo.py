@@ -72,7 +72,7 @@ def do_roll(motor, config, light=None) -> None:
         light.set_pattern("rolling")
 
     print(f"  Rolling: {rpm:.0f} RPM for {duration:.1f}s")
-    motor.start(rpm=rpm)
+    motor.spin(rpm=rpm)
     time.sleep(duration)
 
     print("  Stopping...")

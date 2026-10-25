@@ -66,7 +66,7 @@ def main():
     try:
         # Spin
         print(f"Spinning at {rpm:.1f} RPM for {duration:.1f}s...")
-        motor.start(rpm=rpm)
+        motor.spin(rpm=rpm)
         time.sleep(duration)
 
         # Stop

@@ -108,7 +108,7 @@ class StateMachine:
             self.config.motor.roll_duration_max_sec,
         )
         logger.info("Roll %s: rpm=%.1f, duration=%.1fs", roll_id, rpm, duration)
-        self.motor.start(rpm=rpm)
+        self.motor.spin(rpm=rpm)
         time.sleep(duration)
         self.motor.stop()
 

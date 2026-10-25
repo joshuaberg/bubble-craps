@@ -54,7 +54,7 @@ def test_speed_control(motor: CANMotorController, rpm: float) -> bool:
     """Test 2: Spin the motor at a given RPM for 3 seconds."""
     separator(f"TEST 2: Speed Control ({rpm} RPM for 3 seconds)")
     print("Starting motor...")
-    motor.start(rpm=rpm)
+    motor.spin(rpm=rpm)
     time.sleep(3)
 
     pos_during = motor.get_position()
@@ -141,7 +141,7 @@ def test_full_roll_cycle(motor: CANMotorController, rpm: float) -> bool:
     separator(f"TEST 5: Full Roll Cycle (spin at {rpm} RPM -> park at 0)")
 
     print("Step 1: Spinning motor...")
-    motor.start(rpm=rpm)
+    motor.spin(rpm=rpm)
     time.sleep(3)
 
     print("Step 2: Stopping motor...")

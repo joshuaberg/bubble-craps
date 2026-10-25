@@ -9,6 +9,7 @@ trigger:
 motor:
   can_channel: "can0"        # socketcan interface name
   can_id: 0x141              # CAN arbitration ID for the motor (motor index 0)
+  torque_scale_factor: 645           # "Taylor factor" — changes per motor model
   roll_rpm_min: 450           # minimum motor speed during rolling phase
   roll_rpm_max: 550           # maximum motor speed during rolling phase
   roll_duration_min_sec: 3   # minimum motor run time
