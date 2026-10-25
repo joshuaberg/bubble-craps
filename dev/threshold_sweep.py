@@ -14,8 +14,15 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from bubble_craps.config import load_config
+
 
 def main():
+    config = load_config()
+    det = config.detection
+
     p = argparse.ArgumentParser(description="Threshold sweep")
     p.add_argument("image", help="Path to input image")
     p.add_argument("--out-dir", default="debug_out", help="Output directory")
@@ -23,10 +30,10 @@ def main():
     p.add_argument("--end", type=int, default=255, help="Ending threshold (default: 255)")
     p.add_argument("--step", type=int, default=15, help="Step size (default: 15)")
 
-    # ROI
-    p.add_argument("--roi-cx", type=int, default=0)
-    p.add_argument("--roi-cy", type=int, default=0)
-    p.add_argument("--roi-radius", type=int, default=0)
+    # ROI — defaults from config
+    p.add_argument("--roi-cx", type=int, default=det.roi_center_x)
+    p.add_argument("--roi-cy", type=int, default=det.roi_center_y)
+    p.add_argument("--roi-radius", type=int, default=det.roi_radius)
 
     args = p.parse_args()
 

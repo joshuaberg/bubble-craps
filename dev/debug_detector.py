@@ -15,22 +15,31 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from bubble_craps.config import load_config
+
 
 def parse_args():
+    config = load_config()
+    det = config.detection
+
     p = argparse.ArgumentParser(description="Debug dice detector pipeline")
     p.add_argument("image", help="Path to input image")
     p.add_argument("--out-dir", default="debug_out", help="Directory for output images")
 
-    # Die and pip sizes
-    p.add_argument("--die-size", type=int, default=305, help="Die face width in pixels")
-    p.add_argument("--pip-diameter", type=int, default=25, help="Pip diameter in pixels")
+    # Die and pip sizes — defaults from config
+    p.add_argument("--die-size", type=int, default=det.die_size_px, help="Die face width in pixels")
+    p.add_argument("--pip-diameter", type=int, default=det.pip_diameter_px, help="Pip diameter in pixels")
 
-    # ROI mask
-    p.add_argument("--roi-cx", type=int, default=0, help="ROI circle center X (0 = image center)")
-    p.add_argument("--roi-cy", type=int, default=0, help="ROI circle center Y (0 = image center)")
-    p.add_argument("--roi-radius", type=int, default=0, help="ROI circle radius (0 = disabled)")
+    # ROI mask — defaults from config
+    p.add_argument("--roi-cx", type=int, default=det.roi_center_x, help="ROI circle center X (0 = image center)")
+    p.add_argument("--roi-cy", type=int, default=det.roi_center_y, help="ROI circle center Y (0 = image center)")
+    p.add_argument("--roi-radius", type=int, default=det.roi_radius, help="ROI circle radius (0 = disabled)")
 
-    return p.parse_args()
+    args = p.parse_args()
+    args._det = det  # carry config through for pipeline values
+    return args
 
 
 def save(out_dir: Path, name: str, img: np.ndarray) -> None:
@@ -81,18 +90,18 @@ def main():
     save(out_dir, "02_sharp.jpg", sharpened)
 
     # ── 03: Threshold + cleanup ────────────────────────────────────────────
-    print("\n[03] Threshold (230) + morphological open")
-    _, thresh = cv2.threshold(sharpened, 230, 255, cv2.THRESH_BINARY)
-    # Open to remove small speckle noise, keep big squares
-    open_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    det = args._det
+    print(f"\n[03] Threshold ({det.threshold}) + morphological open ({det.morph_kernel})")
+    _, thresh = cv2.threshold(sharpened, det.threshold, 255, cv2.THRESH_BINARY)
+    open_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (det.morph_kernel, det.morph_kernel))
     thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, open_kernel)
     save(out_dir, "03_thresh.jpg", thresh)
 
     # ── 04: Find squares ─────────────────────────────────────────────────────
     # Derive area bounds from die size
     die = args.die_size
-    min_die_area = int((die * 0.85) ** 2)
-    max_die_area = int((die * 1.1) ** 2)
+    min_die_area = int((die * det.die_area_tolerance_low) ** 2)
+    max_die_area = int((die * det.die_area_tolerance_high) ** 2)
 
     print(f"\n[04] Finding squares (die_size={die}px, area={min_die_area}-{max_die_area})")
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -111,12 +120,12 @@ def main():
         if w == 0 or h == 0:
             continue
         aspect = max(w, h) / min(w, h)
-        if aspect > 1.4:
+        if aspect > det.max_aspect_ratio:
             cv2.drawContours(contour_vis, [contour], -1, (0, 165, 255), 1)  # orange = not square
             continue
 
         extent = area / (w * h)
-        if extent < 0.65:
+        if extent < det.min_extent:
             cv2.drawContours(contour_vis, [contour], -1, (0, 255, 255), 1)  # yellow = not filled
             print(f"    rejected: area={area:.0f} extent={extent:.2f}")
             continue
@@ -158,17 +167,17 @@ def main():
             # Derive pip area bounds from pip diameter
             pip_r = args.pip_diameter / 2
             pip_area = 3.14159 * pip_r ** 2
-            min_pip_area = int(pip_area * 0.6)
-            max_pip_area = int(pip_area * 1.6)
+            min_pip_area = int(pip_area * det.pip_area_tolerance_low)
+            max_pip_area = int(pip_area * det.pip_area_tolerance_high)
 
             params = cv2.SimpleBlobDetector_Params()
             params.filterByArea = True
             params.minArea = min_pip_area
             params.maxArea = max_pip_area
             params.filterByCircularity = True
-            params.minCircularity = 0.2
+            params.minCircularity = det.min_circularity
             params.filterByConvexity = True
-            params.minConvexity = 0.2
+            params.minConvexity = det.min_convexity
             params.filterByInertia = False
 
             detector = cv2.SimpleBlobDetector_create(params)
