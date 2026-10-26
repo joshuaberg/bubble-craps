@@ -55,10 +55,18 @@ class MqttClient:
         self._client.loop_start()
 
     def disconnect(self) -> None:
-        """Disconnect from the MQTT broker."""
+        """Disconnect from the MQTT broker, publishing OFFLINE status first."""
         self._persist_queue()
-        self._client.loop_stop()
+        # Publish retained OFFLINE status before disconnecting so subscribers
+        # see OFFLINE on graceful shutdown, not just unexpected disconnects (LWT).
+        offline_payload = json.dumps({
+            "state": "OFFLINE",
+            "device_id": self.config.client_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+        self._client.publish(self.config.topic_status, offline_payload, qos=1, retain=True)
         self._client.disconnect()
+        self._client.loop_stop()
         logger.info("Disconnected from MQTT broker")
 
     def publish_result(self, result: dict) -> None:
