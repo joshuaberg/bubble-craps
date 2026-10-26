@@ -64,9 +64,8 @@ class MqttConfig:
     def topic_result(self) -> str:
         return f"bubble-craps/{self.client_id}/roll/result"
 
-    @property
-    def topic_image(self) -> str:
-        return f"bubble-craps/{self.client_id}/roll/image"
+    def topic_image(self, roll_id: str) -> str:
+        return f"bubble-craps/{self.client_id}/roll/image/{roll_id}"
 
     @property
     def topic_status(self) -> str:

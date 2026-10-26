@@ -312,12 +312,12 @@ class RollSupervisor:
 
         self._mqtt.publish_result(roll_result)
         if outcome.image_bytes:
-            self._mqtt.publish_image(outcome.image_bytes)
+            self._mqtt.publish_image(outcome.image_bytes, outcome.roll_id)
 
     def _publish_image(self, outcome: RollOutcome) -> None:
         """Publish just the image (e.g. mechanism failure evidence)."""
         if outcome.image_bytes:
-            self._mqtt.publish_image(outcome.image_bytes)
+            self._mqtt.publish_image(outcome.image_bytes, outcome.roll_id)
 
     # -- Heartbeat ---------------------------------------------------------
 

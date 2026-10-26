@@ -80,11 +80,12 @@ class MqttClient:
                 self._queue.append(result)
             self._persist_queue()
 
-    def publish_image(self, image_bytes: bytes) -> None:
+    def publish_image(self, image_bytes: bytes, roll_id: str) -> None:
         """Publish a roll image as raw JPEG bytes. Best-effort — not queued offline."""
         if self._connected:
-            self._client.publish(self.config.topic_image, image_bytes, qos=1, retain=False)
-            logger.debug("Published image (%d bytes) to %s", len(image_bytes), self.config.topic_image)
+            topic = self.config.topic_image(roll_id)
+            self._client.publish(topic, image_bytes, qos=1, retain=False)
+            logger.debug("Published image (%d bytes) to %s", len(image_bytes), topic)
 
     def publish_status(self, status: dict) -> None:
         """Publish machine status (retained)."""
