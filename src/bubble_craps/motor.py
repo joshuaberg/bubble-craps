@@ -5,6 +5,10 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 
+class MotorError(Exception):
+    """Raised when a motor command fails to send or gets no response."""
+
+
 @dataclass
 class MotorStatus:
     """Parsed status from a CAN response frame."""
@@ -19,6 +23,10 @@ class CANMotorController:
 
     Uses python-can with the socketcan interface. The CAN HAT must be
     configured at the OS level before use (see README / test script).
+
+    Critical-path methods (spin, go_to_angle, turn_on) raise MotorError
+    on failure. Cleanup methods (stop, turn_off, shutdown) log errors
+    but do not raise, since they are called in finally blocks.
     """
 
     DEFAULT_CAN_ID = 0x141
@@ -40,6 +48,7 @@ class CANMotorController:
         self.turn_off()
 
     def spin(self, rpm: float = 550.0) -> None:
+        """Start spinning at the given RPM. Raises MotorError on failure."""
         cdps = int(rpm * 360 / 60 * 100)
         data = [
             0xA2, 0x00, 0x00, 0x00,
@@ -48,12 +57,15 @@ class CANMotorController:
             (cdps >> 16) & 0xFF,
             (cdps >> 24) & 0xFF,
         ]
-        if self._send(data):
-            self._read_response()
-            self._running = True
-            logger.info("Motor started at %.1f RPM", rpm)
+        if not self._send(data):
+            raise MotorError("spin failed: CAN send error")
+        if self._read_response() is None:
+            raise MotorError("spin failed: no response from motor")
+        self._running = True
+        logger.info("Motor started at %.1f RPM", rpm)
 
     def stop(self) -> None:
+        """Stop the motor. Best-effort — does not raise on failure."""
         data = [0x81, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
         if self._send(data):
             self._read_response()
@@ -64,10 +76,14 @@ class CANMotorController:
         self._go_to_target(position, speed_limit)
 
     def go_to_angle(self, angle: float, speed_limit: float = 100.0) -> None:
+        """Move to the nearest absolute position matching the desired angle.
+
+        Raises MotorError if the current position cannot be read or the
+        move command fails.
+        """
         current = self.get_position()
         if current is None:
-            logger.error("Cannot go_to_angle: failed to read current position")
-            return
+            raise MotorError("go_to_angle failed: cannot read current position")
 
         target = self._nearest_target(current, angle)
         logger.info(
@@ -77,6 +93,7 @@ class CANMotorController:
         self._go_to_target(target, speed_limit)
 
     def get_position(self) -> float | None:
+        """Read current position in degrees. Returns None on failure."""
         data = [0x92, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
         if not self._send(data):
             return None
@@ -95,6 +112,7 @@ class CANMotorController:
         return raw * 0.01
 
     def is_at_position(self) -> bool:
+        """Check if motor has reached target. Returns False on read failure."""
         if self._target_position is None:
             return True
 
@@ -134,13 +152,30 @@ class CANMotorController:
         return self._running
 
     def shutdown(self) -> None:
+        """Stop motor, turn off, close CAN bus. Best-effort — does not raise."""
         self.stop()
         self.turn_off()
         self._bus.shutdown()
         logger.info("CAN bus shut down")
 
+    def turn_on(self) -> None:
+        """Enable the motor. Raises MotorError on failure."""
+        data = [0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        if not self._send(data):
+            raise MotorError("turn_on failed: CAN send error")
+        if self._read_response() is None:
+            raise MotorError("turn_on failed: no response from motor")
+        logger.info("Motor turned ON")
+
+    def turn_off(self) -> None:
+        """Disable the motor. Best-effort — does not raise on failure."""
+        data = [0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        if self._send(data):
+            if self._read_response() is not None:
+                logger.info("Motor turned OFF")
+
     def _go_to_target(self, position: float, speed_limit: float) -> None:
-        """Send the absolute position command to the motor."""
+        """Send the absolute position command. Raises MotorError on failure."""
         speed_raw = int(speed_limit * 360 / 60)
         angle_raw = int(position * 100)
         data = [
@@ -152,11 +187,13 @@ class CANMotorController:
             (angle_raw >> 16) & 0xFF,
             (angle_raw >> 24) & 0xFF,
         ]
-        if self._send(data):
-            self._read_response()
-            self._target_position = position
-            self._running = True
-            logger.info("Motor moving to %.2f deg (speed limit %.1f RPM)", position, speed_limit)
+        if not self._send(data):
+            raise MotorError("go_to_target failed: CAN send error")
+        if self._read_response() is None:
+            raise MotorError("go_to_target failed: no response from motor")
+        self._target_position = position
+        self._running = True
+        logger.info("Motor moving to %.2f deg (speed limit %.1f RPM)", position, speed_limit)
 
     @staticmethod
     def _nearest_target(current: float, angle: float) -> float:
@@ -167,22 +204,6 @@ class CANMotorController:
         candidate_c = candidate_a - 360
         candidates = [candidate_a, candidate_b, candidate_c]
         return min(candidates, key=lambda c: abs(c - current))
-
-    def turn_on(self) -> bool:
-        data = [0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
-        if self._send(data):
-            if self._read_response() is not None:
-                logger.info("Motor turned ON")
-                return True
-        return False
-
-    def turn_off(self) -> bool:
-        data = [0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
-        if self._send(data):
-            if self._read_response() is not None:
-                logger.info("Motor turned OFF")
-                return True
-        return False
 
     def _send(self, data: list[int]) -> bool:
         msg = self._can.Message(
