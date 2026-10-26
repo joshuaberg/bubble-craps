@@ -85,10 +85,9 @@ class StateMachine:
         """
         self.transition(State.TRIGGERED)
 
-        self.motor.turn_on()
-        time.sleep(_MOTOR_ON_DELAY_SEC)
-
         try:
+            self.motor.turn_on()
+            time.sleep(_MOTOR_ON_DELAY_SEC)
             self._do_rolling(roll_id)
             self._do_settling()
             return self._do_capture_and_detect(roll_id)
