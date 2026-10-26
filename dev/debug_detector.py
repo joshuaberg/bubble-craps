@@ -30,7 +30,7 @@ def parse_args():
 
     # Die and pip sizes — defaults from config
     p.add_argument("--die-size", type=int, default=det.die_size_px, help="Die face width in pixels")
-    p.add_argument("--pip-diameter", type=int, default=det.pip_diameter_px, help="Pip diameter in pixels")
+    p.add_argument("--pip-diameter", type=int, default=det.pip_diameter_warped_px, help="Pip diameter in the 200px warped die image")
 
     # ROI mask — defaults from config
     p.add_argument("--roi-cx", type=int, default=det.roi_center_x, help="ROI circle center X (0 = image center)")

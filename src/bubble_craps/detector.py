@@ -31,8 +31,8 @@ class DiceDetector:
         self.min_die_area = int((die * config.die_area_tolerance_low) ** 2)
         self.max_die_area = int((die * config.die_area_tolerance_high) ** 2)
 
-        # Derive pip area bounds from pip_diameter_px and configured tolerances
-        pip_r = config.pip_diameter_px / 2
+        # Derive pip area bounds from pip diameter on the warped 200px die image
+        pip_r = config.pip_diameter_warped_px / 2
         pip_area = 3.14159 * pip_r ** 2
         self.min_pip_area = int(pip_area * config.pip_area_tolerance_low)
         self.max_pip_area = int(pip_area * config.pip_area_tolerance_high)

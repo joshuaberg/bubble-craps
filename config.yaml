@@ -53,7 +53,7 @@ detection:
   roi_center_y: 0               # 0 = auto (image center)
   roi_radius: 650               # ROI circle radius in pixels
   die_size_px: 305              # die face width in pixels
-  pip_diameter_px: 25           # pip diameter in pixels
+  pip_diameter_warped_px: 25    # pip diameter in the 200px perspective-corrected die image
   # Pipeline tuning — adjust if detection is unreliable
   threshold: 230                # brightness cutoff for white dice
   morph_kernel: 15              # morphology cleanup kernel size

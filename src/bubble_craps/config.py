@@ -86,8 +86,8 @@ class DetectionConfig:
     roi_center_x: int = 0       # 0 = auto (image center)
     roi_center_y: int = 0       # 0 = auto (image center)
     roi_radius: int = 0         # 0 = no ROI mask
-    die_size_px: int = 305      # approximate die face width in pixels
-    pip_diameter_px: int = 25   # approximate pip diameter in pixels
+    die_size_px: int = 305      # approximate die face width in camera image pixels
+    pip_diameter_warped_px: int = 25  # pip diameter in the 200px perspective-corrected die image
     # Pipeline tuning — adjust if detection is unreliable
     threshold: int = 230
     morph_kernel: int = 15
