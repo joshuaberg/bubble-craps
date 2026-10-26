@@ -56,6 +56,11 @@ class DiceDetector:
             logger.warning("Expected 2 dice, found %d squares", len(squares))
             return None
 
+        # Sort by x-position so die1 is always the left die.
+        # findContours returns in arbitrary order — without sorting,
+        # the mechanism failure check would compare mismatched dice.
+        squares.sort(key=lambda c: self._get_center(c)[0])
+
         results = []
         centers = []
 
