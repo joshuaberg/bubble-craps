@@ -37,6 +37,7 @@ class RollOutcome:
     result: dict | None     # {"die1": int, "die2": int, "positions": [...]} or None
     image_bytes: bytes | None
     attempt: CaptureAttempt
+    motor_temp_c: int | None = None  # motor temperature after rolling, if available
 
 
 class StateMachine:
@@ -65,6 +66,7 @@ class StateMachine:
 
         # For mechanism integrity check
         self._previous_roll: dict | None = None
+        self._last_motor_temp_c: int | None = None
 
     def transition(self, new_state: State) -> None:
         """Move to a new state, update ring light, notify listener."""
@@ -114,6 +116,10 @@ class StateMachine:
         time.sleep(duration)
         self.motor.stop()
 
+        # Read motor temperature right after spinning, while still on
+        status = self.motor.get_status()
+        self._last_motor_temp_c = status.temp_c if status else None
+
     def _do_settling(self) -> None:
         """SETTLING phase: park motor and wait for dice to settle."""
         self.transition(State.SETTLING)
@@ -144,6 +150,7 @@ class StateMachine:
                 result=None,
                 image_bytes=None,
                 attempt=CaptureAttempt(capture="failed", detect="skipped"),
+                motor_temp_c=self._last_motor_temp_c,
             )
 
         self.transition(State.ANALYZE)
@@ -157,6 +164,7 @@ class StateMachine:
                 result=None,
                 image_bytes=image_bytes,
                 attempt=CaptureAttempt(capture="ok", detect="null"),
+                motor_temp_c=self._last_motor_temp_c,
             )
 
         # Mechanism failure check
@@ -168,6 +176,7 @@ class StateMachine:
                 result=result,
                 image_bytes=image_bytes,
                 attempt=CaptureAttempt(capture="ok", detect="ok"),
+                motor_temp_c=self._last_motor_temp_c,
             )
 
         self._previous_roll = result
@@ -177,6 +186,7 @@ class StateMachine:
             result=result,
             image_bytes=image_bytes,
             attempt=CaptureAttempt(capture="ok", detect="ok"),
+            motor_temp_c=self._last_motor_temp_c,
         )
 
     def _encode_image(self, image) -> bytes:

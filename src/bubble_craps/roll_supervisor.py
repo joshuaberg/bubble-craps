@@ -287,6 +287,7 @@ class RollSupervisor:
                 "roll_status": final_status,
                 "roll_status_reason": None,
                 "attempts": [{"capture": a.capture, "detect": a.detect} for a in attempts],
+                "motor_temp_c": outcome.motor_temp_c,
                 "timestamp": timestamp,
                 "device_id": self._config.mqtt.client_id,
             }
@@ -299,6 +300,7 @@ class RollSupervisor:
                 "roll_status": final_status,
                 "roll_status_reason": "Could not detect exactly 2 dice",
                 "attempts": [{"capture": a.capture, "detect": a.detect} for a in attempts],
+                "motor_temp_c": outcome.motor_temp_c,
                 "timestamp": timestamp,
                 "device_id": self._config.mqtt.client_id,
             }
