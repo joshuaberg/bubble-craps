@@ -15,6 +15,7 @@ _REROLL_DELAY_SEC = 3.0
 _MAX_CONSECUTIVE_UNEXPECTED_FAILURES = 3
 _MAX_CONSECUTIVE_DETECTION_FAILURES = 5
 _HEARTBEAT_INTERVAL_SEC = 300  # 5 minutes
+_MIN_TIMER_INTERVAL_SEC = 60
 
 
 class RollSupervisor:
@@ -266,7 +267,11 @@ class RollSupervisor:
             return
         self._config.trigger.mode = mode
         if mode == "timer" and "interval_sec" in kwargs:
-            self._config.trigger.timer_interval_sec = kwargs["interval_sec"]
+            interval = kwargs["interval_sec"]
+            if not isinstance(interval, (int, float)) or interval < _MIN_TIMER_INTERVAL_SEC:
+                logger.warning("Rejected interval_sec=%s (minimum %ds)", interval, _MIN_TIMER_INTERVAL_SEC)
+                return
+            self._config.trigger.timer_interval_sec = int(interval)
         logger.info("Trigger mode changed to: %s", mode)
         self._reset_timer()
         self._publish_status()
