@@ -48,8 +48,7 @@ def main() -> None:
     mqtt_client = MqttClient(config.mqtt, on_command=lambda p: handle_command(p))
 
     # Roll supervisor — owns status, timer, retry policy, command queue
-    supervisor = RollSupervisor(config, state_machine=None, mqtt_client=mqtt_client,
-                                config_path=config_path)
+    supervisor = RollSupervisor(config, state_machine=None, mqtt_client=mqtt_client)
 
     # State machine — transition callback wired to supervisor
     state_machine = StateMachine(

@@ -111,21 +111,6 @@ class AppConfig:
     detection: DetectionConfig = field(default_factory=DetectionConfig)
 
 
-def save_trigger_config(trigger: TriggerConfig, path: Path | None = None) -> None:
-    """Persist trigger mode and interval back to config.yaml."""
-    config_path = path or DEFAULT_CONFIG_PATH
-    try:
-        with open(config_path) as f:
-            raw = yaml.safe_load(f) or {}
-        raw.setdefault("trigger", {})
-        raw["trigger"]["mode"] = trigger.mode
-        raw["trigger"]["timer_interval_sec"] = trigger.timer_interval_sec
-        with open(config_path, "w") as f:
-            yaml.dump(raw, f, default_flow_style=False, allow_unicode=True)
-        logger.info("Trigger config persisted to %s", config_path)
-    except OSError:
-        logger.error("Failed to persist trigger config to %s", config_path)
-
 
 def load_config(path: Path | None = None) -> AppConfig:
     """Load configuration from a YAML file and return an AppConfig instance."""
@@ -148,11 +133,21 @@ def load_config(path: Path | None = None) -> AppConfig:
 
     ring_light = RingLightConfig(**raw.get("ring_light", {}))
 
+    config_dir = config_path.resolve().parent
+
     mqtt_raw = raw.get("mqtt", {})
     offline_queue = OfflineQueueConfig(**mqtt_raw.pop("offline_queue", {}))
+    # Resolve relative persist_file path against config directory
+    persist_path = Path(offline_queue.persist_file)
+    if not persist_path.is_absolute():
+        offline_queue.persist_file = str(config_dir / persist_path)
     mqtt = MqttConfig(**mqtt_raw, offline_queue=offline_queue)
 
     detection = DetectionConfig(**raw.get("detection", {}))
+    # Resolve relative calibration_file path against config directory
+    cal_path = Path(detection.calibration_file)
+    if not cal_path.is_absolute():
+        detection.calibration_file = str(config_dir / cal_path)
 
     return AppConfig(
         trigger=trigger,

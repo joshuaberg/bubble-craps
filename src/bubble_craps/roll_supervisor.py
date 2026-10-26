@@ -5,7 +5,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from bubble_craps.config import AppConfig, save_trigger_config
+from bubble_craps.config import AppConfig
 from bubble_craps.state_machine import RollOutcome, State
 
 logger = logging.getLogger(__name__)
@@ -26,10 +26,8 @@ class RollSupervisor:
     machine focused purely on driving hardware.
     """
 
-    def __init__(self, config: AppConfig, state_machine, mqtt_client,
-                 config_path=None):
+    def __init__(self, config: AppConfig, state_machine, mqtt_client):
         self._config = config
-        self._config_path = config_path
         self._sm = state_machine
         self._mqtt = mqtt_client
 
@@ -270,7 +268,6 @@ class RollSupervisor:
         if mode == "timer" and "interval_sec" in kwargs:
             self._config.trigger.timer_interval_sec = kwargs["interval_sec"]
         logger.info("Trigger mode changed to: %s", mode)
-        save_trigger_config(self._config.trigger, self._config_path)
         self._reset_timer()
         self._publish_status()
 
