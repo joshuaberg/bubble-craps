@@ -2,16 +2,16 @@ import logging
 import signal
 import sys
 import threading
-import time
 from pathlib import Path
 
 from bubble_craps.camera import PiCamera
-from bubble_craps.config import load_config, save_trigger_config
+from bubble_craps.config import load_config
 from bubble_craps.detector import DiceDetector
 from bubble_craps.motor import CANMotorController
 from bubble_craps.mqtt_client import MqttClient
 from bubble_craps.ring_light import NeoPixelRingLightController
-from bubble_craps.state_machine import State, StateMachine
+from bubble_craps.roll_supervisor import RollSupervisor
+from bubble_craps.state_machine import StateMachine
 
 logger = logging.getLogger(__name__)
 
@@ -41,52 +41,46 @@ def main() -> None:
         num_leds=config.ring_light.num_leds,
         brightness=config.ring_light.idle_brightness,
     )
-
     camera = PiCamera(config.camera)
-
     detector = DiceDetector(config.detection)
 
-    # MQTT client and command handler
-    state_machine = None
+    # MQTT client — command handler wired after supervisor is created
+    mqtt_client = MqttClient(config.mqtt, on_command=lambda p: handle_command(p))
 
+    # Roll supervisor — owns status, timer, retry policy, command queue
+    supervisor = RollSupervisor(config, state_machine=None, mqtt_client=mqtt_client,
+                                config_path=config_path)
+
+    # State machine — transition callback wired to supervisor
+    state_machine = StateMachine(
+        config, motor, ring_light, camera, detector,
+        on_transition=supervisor._on_transition,
+    )
+    supervisor._sm = state_machine
+
+    # All commands go through the supervisor queue
     def handle_command(payload: dict) -> None:
         action = payload.get("action")
         if action == "roll":
-            if state_machine:
-                threading.Thread(target=state_machine.trigger_roll, daemon=True).start()
+            supervisor.enqueue("roll")
         elif action == "set_mode":
-            mode = payload.get("mode")
-            if mode in ("timer", "remote"):
-                config.trigger.mode = mode
-                if mode == "timer" and "interval_sec" in payload:
-                    config.trigger.timer_interval_sec = payload["interval_sec"]
-                logger.info("Trigger mode changed to: %s", mode)
-                save_trigger_config(config.trigger, config_path)
-                if state_machine:
-                    mqtt_client.publish_status(state_machine._build_status())
+            supervisor.enqueue("set_mode",
+                               mode=payload.get("mode"),
+                               interval_sec=payload.get("interval_sec"))
         elif action == "status":
-            if state_machine:
-                mqtt_client.publish_status(state_machine._build_status())
+            supervisor._publish_status()
         elif action == "clear_error":
-            if state_machine:
-                state_machine.clear_error()
+            supervisor.enqueue("clear_error")
         else:
             logger.warning("Unknown command action: %s", action)
 
-    mqtt_client = MqttClient(config.mqtt, on_command=handle_command)
-
-    # Wire state machine events to MQTT
-    state_machine = StateMachine(
-        config, motor, ring_light, camera, detector,
-        on_status=mqtt_client.publish_status,
-        on_result=mqtt_client.publish_result,
-        on_image=mqtt_client.publish_image,
-    )
-
-    # Connect to MQTT
+    # Connect and start
     mqtt_client.connect()
+    supervisor.start()
 
-    # Graceful shutdown
+    logger.info("Bubble Craps Machine started (trigger_mode=%s)", config.trigger.mode)
+
+    # Graceful shutdown — just wait for signal
     shutdown_event = threading.Event()
 
     def signal_handler(sig, frame):
@@ -96,27 +90,12 @@ def main() -> None:
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    logger.info("Bubble Craps Machine started (trigger_mode=%s)", config.trigger.mode)
-
-    _HEARTBEAT_INTERVAL_SEC = 300  # 5 minutes
-    _last_heartbeat = time.monotonic()
-
     try:
-        while not shutdown_event.is_set():
-            if config.trigger.mode == "timer" and state_machine.state == State.IDLE:
-                state_machine.trigger_roll()
-                shutdown_event.wait(timeout=config.trigger.timer_interval_sec)
-            else:
-                shutdown_event.wait(timeout=1.0)
-
-            # Heartbeat — publish status every 5 minutes while in IDLE
-            if state_machine.state == State.IDLE:
-                now = time.monotonic()
-                if now - _last_heartbeat >= _HEARTBEAT_INTERVAL_SEC:
-                    mqtt_client.publish_status(state_machine._build_status())
-                    _last_heartbeat = now
+        shutdown_event.wait()
     finally:
         logger.info("Shutting down...")
+        supervisor.stop()
+        motor.shutdown()
         ring_light.off()
         camera.close()
         mqtt_client.disconnect()

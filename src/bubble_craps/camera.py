@@ -25,6 +25,25 @@ class PiCamera:
                 )
             )
             self._camera.start()
+
+            # Apply exposure and white balance settings
+            if self.config.exposure_mode == "fixed":
+                self._camera.set_controls({
+                    "AeEnable": False,
+                    "ExposureTime": self.config.exposure_time_us,
+                })
+                logger.info("PiCamera: fixed exposure at %d us", self.config.exposure_time_us)
+            else:
+                logger.info("PiCamera: auto exposure")
+
+            if self.config.white_balance == "fixed":
+                self._camera.set_controls({
+                    "AwbEnable": False,
+                })
+                logger.info("PiCamera: fixed white balance")
+            else:
+                logger.info("PiCamera: auto white balance")
+
             logger.info("PiCamera: initialized at resolution %s", self.config.resolution)
 
     def capture(self) -> np.ndarray:
