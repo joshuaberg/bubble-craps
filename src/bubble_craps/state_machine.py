@@ -136,9 +136,12 @@ class StateMachine:
 
         time.sleep(self.config.motor.settling_time_sec)
 
+    _CAPTURE_LIGHT_SETTLE_SEC = 0.1
+
     def _do_capture_and_detect(self, roll_id: str) -> RollOutcome:
         """CAPTURE + ANALYZE: single attempt to photograph and detect dice."""
         self.transition(State.CAPTURE)
+        time.sleep(self._CAPTURE_LIGHT_SETTLE_SEC)
         try:
             image = self.camera.capture()
         except Exception as exc:

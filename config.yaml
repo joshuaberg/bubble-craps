@@ -57,7 +57,7 @@ detection:
   die_size_px: 305              # die face width in pixels
   pip_diameter_warped_px: 25    # pip diameter in the 200px perspective-corrected die image
   # Pipeline tuning — adjust if detection is unreliable
-  threshold: 230                # brightness cutoff for white dice
+  threshold: 160                # brightness cutoff for white dice (calibrated at 9500us exposure)
   morph_kernel: 15              # morphology cleanup kernel size
   die_area_tolerance_low: 0.85  # min die size as fraction of die_size_px
   die_area_tolerance_high: 1.1  # max die size as fraction of die_size_px
