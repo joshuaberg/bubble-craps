@@ -1,10 +1,13 @@
 import logging
+import time
 
 import numpy as np
 
 from bubble_craps.config import CameraConfig
 
 logger = logging.getLogger(__name__)
+
+_CONTROLS_SETTLE_SEC = 2.0
 
 
 class PiCamera:
@@ -26,23 +29,25 @@ class PiCamera:
             )
             self._camera.start()
 
-            # Apply exposure and white balance settings
+            # Apply exposure and white balance settings in one call
+            controls = {}
             if self.config.exposure_mode == "fixed":
-                self._camera.set_controls({
-                    "AeEnable": False,
-                    "ExposureTime": self.config.exposure_time_us,
-                })
-                logger.info("PiCamera: fixed exposure at %d us", self.config.exposure_time_us)
+                controls["AeEnable"] = False
+                controls["ExposureTime"] = self.config.exposure_time_us
+                controls["AnalogueGain"] = 1.0
+                logger.info("PiCamera: fixed exposure at %d us, gain 1.0", self.config.exposure_time_us)
             else:
                 logger.info("PiCamera: auto exposure")
 
             if self.config.white_balance == "fixed":
-                self._camera.set_controls({
-                    "AwbEnable": False,
-                })
+                controls["AwbEnable"] = False
                 logger.info("PiCamera: fixed white balance")
             else:
                 logger.info("PiCamera: auto white balance")
+
+            if controls:
+                self._camera.set_controls(controls)
+                time.sleep(_CONTROLS_SETTLE_SEC)
 
             logger.info("PiCamera: initialized at resolution %s", self.config.resolution)
 
