@@ -37,7 +37,7 @@ ring_light:
 
 # MQTT settings
 mqtt:
-  broker: "192.168.1.100"
+  broker: "192.168.86.218"
   port: 1883
   client_id: "bubble-craps-01"
   keepalive: 60
