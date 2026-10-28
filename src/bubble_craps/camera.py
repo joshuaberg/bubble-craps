@@ -41,7 +41,12 @@ class PiCamera:
 
             if self.config.white_balance == "fixed":
                 controls["AwbEnable"] = False
-                logger.info("PiCamera: fixed white balance")
+                controls["ColourGains"] = (
+                    self.config.colour_gain_red,
+                    self.config.colour_gain_blue,
+                )
+                logger.info("PiCamera: fixed white balance (red=%.2f, blue=%.2f)",
+                            self.config.colour_gain_red, self.config.colour_gain_blue)
             else:
                 logger.info("PiCamera: auto white balance")
 

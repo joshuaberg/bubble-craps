@@ -24,8 +24,10 @@ motor:
 camera:
   resolution: [1920, 1080]
   exposure_mode: "fixed"
-  exposure_time_us: 15000       # manual exposure in microseconds (0 = auto)
+  exposure_time_us: 9500        # calibrated under ring light (auto chose ~9500)
   white_balance: "fixed"
+  colour_gain_red: 3.16         # calibrated under ring light
+  colour_gain_blue: 1.49        # calibrated under ring light
 
 # Ring light settings
 ring_light:
