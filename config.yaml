@@ -14,7 +14,7 @@ motor:
   roll_rpm_max: 550           # maximum motor speed during rolling phase
   roll_duration_min_sec: 3   # minimum motor run time
   roll_duration_max_sec: 5   # maximum motor run time
-  park_position: 294.29           # motor position for capture (degrees)
+  park_position: 114.29           # motor position for capture (degrees)
   park_speed_limit: 100      # RPM limit when moving to park position
   park_timeout_sec: 5        # max time to wait for motor to reach park position
   park_poll_interval_sec: 0.1  # how often to poll is_at_position()
@@ -58,7 +58,7 @@ detection:
   pip_diameter_warped_px: 25    # pip diameter in the 200px perspective-corrected die image
   # Pipeline tuning — adjust if detection is unreliable
   threshold: 160                # brightness cutoff for white dice (calibrated at 9500us exposure)
-  morph_kernel: 15              # morphology cleanup kernel size
+  morph_kernel: 7               # morphology cleanup kernel size (was 15, reduced to preserve edge pips)
   die_area_tolerance_low: 0.85  # min die size as fraction of die_size_px
   die_area_tolerance_high: 1.1  # max die size as fraction of die_size_px
   pip_area_tolerance_low: 0.6   # min pip size as fraction of expected

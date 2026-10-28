@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
 """Interactive calibration tool for the Bubble Craps platform.
 
-Run this on the Pi to find the ideal park position for the dice platform,
-then save it to config.yaml.
+Run this on the Pi to find the ideal park position for the dice platform.
+Note the angle and update config.yaml manually.
 
 Prerequisites:
   sudo ip link set can0 up type can bitrate 1000000
 
 Usage:
-  python3 scripts/calibrate.py
-  python3 scripts/calibrate.py --channel can0 --can-id 0x141
+  sudo python3 scripts/calibrate.py
+  sudo python3 scripts/calibrate.py --channel can0 --can-id 0x141
 
 Controls:
   Left/Right arrows   Nudge by 1 degree
   Up/Down arrows       Nudge by 10 degrees
   p                    Print current position
-  s                    Save current angle as park_position
   q                    Stop motor and exit
 """
 
@@ -28,9 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-import yaml
-
-from bubble_craps.config import load_config, DEFAULT_CONFIG_PATH
+from bubble_craps.config import load_config
 from bubble_craps.motor import CANMotorController
 
 SMALL_STEP = 1.0   # degrees per left/right arrow
@@ -60,19 +57,6 @@ def get_key():
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 
-def update_config_park_position(angle: float, config_path: Path) -> None:
-    """Update park_position in config.yaml while preserving the rest of the file."""
-    with open(config_path) as f:
-        raw = yaml.safe_load(f) or {}
-
-    raw.setdefault("motor", {})["park_position"] = round(angle, 2)
-
-    with open(config_path, "w") as f:
-        yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
-
-    print(f"\r  Saved park_position: {angle:.2f} to {config_path}")
-
-
 def main():
     config = load_config()
     mc = config.motor
@@ -81,15 +65,12 @@ def main():
     parser.add_argument("--channel", default=mc.can_channel, help="CAN interface")
     parser.add_argument("--can-id", default=f"0x{mc.can_id:X}", help="Motor CAN ID in hex")
     parser.add_argument("--speed", type=float, default=30.0, help="Speed for movements (RPM, default: 30)")
-    parser.add_argument("--config", default=str(DEFAULT_CONFIG_PATH), help="Path to config.yaml")
     args = parser.parse_args()
 
     can_id = int(args.can_id, 16) if isinstance(args.can_id, str) else args.can_id
-    config_path = Path(args.config)
 
     print("Bubble Craps Platform Calibration")
     print(f"  CAN: {args.channel}  ID: 0x{can_id:X}  Speed: {args.speed} RPM")
-    print(f"  Config: {config_path}")
     print()
 
     try:
@@ -98,6 +79,9 @@ def main():
         print(f"Failed to open CAN bus: {e}")
         print("Make sure: sudo ip link set can0 up type can bitrate 1000000")
         sys.exit(1)
+
+    motor.turn_on()
+    time.sleep(0.2)
 
     pos = motor.get_position()
     if pos is None:
@@ -111,8 +95,9 @@ def main():
     print("  Left/Right   Nudge ±1 deg")
     print("  Up/Down      Nudge ±10 deg")
     print("  p            Show position")
-    print("  s            Save as park_position")
     print("  q            Quit")
+    print()
+    print("Note the angle and update park_position in config.yaml manually.")
     print()
 
     def nudge(delta: float):
@@ -141,21 +126,6 @@ def main():
         else:
             print("\r  ERROR: could not read position")
 
-    def save_position():
-        pos = motor.get_position()
-        if pos is None:
-            print("\r  ERROR: could not read position")
-            return
-        angle = round(pos % 360, 2)
-        print(f"\r  Current angle: {angle:.2f}")
-        print(f"\r  Save as park_position? [y/N] ", end="", flush=True)
-        key = get_key()
-        if key == "y":
-            print()
-            update_config_park_position(angle, config_path)
-        else:
-            print("\r  Cancelled                      ")
-
     try:
         while True:
             key = get_key()
@@ -172,8 +142,6 @@ def main():
                 nudge(-BIG_STEP)
             elif key == "p":
                 show_position()
-            elif key == "s":
-                save_position()
 
     except KeyboardInterrupt:
         print("\nInterrupted")
