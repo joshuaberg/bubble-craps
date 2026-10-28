@@ -3,7 +3,7 @@
 # Trigger settings
 trigger:
   mode: "timer"              # "timer" or "remote"
-  timer_interval_sec: 120    # seconds between rolls in timer mode
+  timer_interval_sec: 3600   # seconds between rolls in timer mode (1 hour)
 
 # Motor settings
 motor:
