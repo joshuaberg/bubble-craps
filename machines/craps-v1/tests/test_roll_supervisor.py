@@ -291,11 +291,3 @@ class TestSetMode:
         assert supervisor._config.trigger.timer_interval_sec == 90
 
 
-class TestDuplicateRollRejection:
-
-    def test_rejects_roll_while_rolling(self, supervisor, fake_mqtt):
-        supervisor._rolling = True
-
-        supervisor._execute_roll()
-
-        supervisor._sm.run_roll.assert_not_called()

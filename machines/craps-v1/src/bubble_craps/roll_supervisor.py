@@ -50,8 +50,6 @@ class RollSupervisor:
         self._next_timer_roll: float | None = None
         self._last_heartbeat = time.monotonic()
 
-        # Roll-in-progress flag for queue dedup
-        self._rolling = False
 
     def start(self) -> None:
         """Start the supervisor worker thread."""
@@ -157,11 +155,6 @@ class RollSupervisor:
             logger.warning("Cannot roll while in error state")
             return
 
-        if self._rolling:
-            logger.warning("Roll already in progress, ignoring")
-            return
-
-        self._rolling = True
         roll_id = uuid.uuid4().hex
         attempts = []
 
@@ -172,8 +165,6 @@ class RollSupervisor:
             logger.exception("Unexpected error during roll %s", roll_id)
             self._handle_unexpected_failure()
             return
-        finally:
-            self._rolling = False
             self._reset_timer()
 
         # If not ok, try recapture once (works for both detection_failed and camera_failure)
