@@ -122,29 +122,32 @@ class RollSupervisor:
 
     def _run(self) -> None:
         while not self._shutdown.is_set():
-            self._maybe_heartbeat()
-
-            timeout = self._time_until_next_roll()
-
             try:
-                item = self._queue.get(timeout=timeout)
-            except queue.Empty:
-                if self._should_auto_roll():
+                self._maybe_heartbeat()
+
+                timeout = self._time_until_next_roll()
+
+                try:
+                    item = self._queue.get(timeout=timeout)
+                except queue.Empty:
+                    if self._should_auto_roll():
+                        self._execute_roll()
+                    continue
+
+                command, kwargs = item
+
+                if command == "_shutdown":
+                    break
+                elif command == "roll":
                     self._execute_roll()
-                continue
-
-            command, kwargs = item
-
-            if command == "_shutdown":
-                break
-            elif command == "roll":
-                self._execute_roll()
-            elif command == "clear_error":
-                self._clear_error()
-            elif command == "set_mode":
-                self._handle_set_mode(kwargs)
-            else:
-                logger.warning("Unknown supervisor command: %s", command)
+                elif command == "clear_error":
+                    self._clear_error()
+                elif command == "set_mode":
+                    self._handle_set_mode(kwargs)
+                else:
+                    logger.warning("Unknown supervisor command: %s", command)
+            except Exception:
+                logger.exception("Unexpected error in supervisor loop, continuing")
 
     # -- Roll execution with retry policy ----------------------------------
 
