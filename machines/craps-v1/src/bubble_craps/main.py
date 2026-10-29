@@ -59,7 +59,11 @@ def main() -> None:
 
     # All commands go through the supervisor queue
     def handle_command(payload: dict) -> None:
-        action = payload.get("action")
+        try:
+            action = payload.get("action")
+        except AttributeError:
+            logger.warning("Ignoring non-object command payload: %s", type(payload).__name__)
+            return
         if action == "roll":
             supervisor.enqueue("roll")
         elif action == "set_mode":
