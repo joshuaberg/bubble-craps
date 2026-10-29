@@ -1,6 +1,8 @@
 *.jpg
 __pycache__/
 *.pyc
-PRD.md
+.venv/
+.pytest_cache/
+debug_out/
+*.egg-info/
 TODO.md
-CLEANUP.md

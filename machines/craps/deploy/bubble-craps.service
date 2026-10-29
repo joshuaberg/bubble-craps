@@ -6,13 +6,13 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/home/lucky/bubble-craps
-ExecStart=/home/lucky/bubble-craps/venv/bin/python -m bubble_craps.main
+WorkingDirectory=/home/lucky/bubble-craps/machines/craps
+ExecStart=/home/lucky/bubble-craps/machines/craps/venv/bin/python -m bubble_craps.main
 Restart=on-failure
 RestartSec=5
 
 # Environment
-Environment=PYTHONPATH=/home/lucky/bubble-craps/src
+Environment=PYTHONPATH=/home/lucky/bubble-craps/machines/craps/src
 
 # CAN bus needs root for setup, but the app runs as lucky.
 # Make sure the can0 interface is brought up before this service starts
