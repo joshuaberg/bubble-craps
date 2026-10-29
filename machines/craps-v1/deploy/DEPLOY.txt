@@ -14,7 +14,12 @@ First-time setup
 
 2. Create a virtual environment:
      cd ~/bubble-craps/machines/craps-v1
-     python3 -m venv venv
+     python3 -m venv --system-site-packages venv
+
+   IMPORTANT: --system-site-packages is required! picamera2 depends on
+   libcamera, which is an OS-level package (not on PyPI). Without this
+   flag the venv can't see it and camera capture will fail with:
+   "No module named 'libcamera'"
 
 3. Install dependencies:
      source venv/bin/activate
