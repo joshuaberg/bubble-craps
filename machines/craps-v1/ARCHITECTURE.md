@@ -57,6 +57,14 @@ The system is split into two layers:
 
 This split keeps hardware sequencing testable in isolation (no broker needed) and puts all policy decisions in one place. When retry logic or error thresholds change, only the supervisor is touched.
 
+### How They Communicate
+
+The state machine's `run_roll()` method returns a `RollOutcome` dataclass describing what happened (ok, detection_failed, camera_failure, mechanism_failure) along with the detection result, image bytes, and attempt record. The supervisor inspects this outcome and decides what to do — publish, retry, or enter ERROR.
+
+The state machine also accepts a single `on_transition` callback, called on every phase change (IDLE → TRIGGERED → ROLLING → etc.). The supervisor uses this to publish status updates over MQTT on each transition, so subscribers see the machine move through its phases in real time.
+
+This means the state machine never imports or references the MQTT client. It only knows how to drive hardware and report what happened. All MQTT publishing, status building, result formatting, and error policy live in the supervisor.
+
 Downstream consumers (game server, dashboard, SQL bridge) subscribe to the broker independently. The Pi has no knowledge of what is consuming its messages.
 
 ---
@@ -122,7 +130,7 @@ IDLE ──► TRIGGERED ──► ROLLING ──► SETTLING ──► CAPTURE 
 
 | State | What happens | Duration |
 |-------|-------------|----------|
-| **IDLE** | Waiting for a trigger. Motor off. Ring light idle pulse. | Until triggered |
+| **IDLE** | Waiting for a trigger. Motor off. Ring light at idle brightness. | Until triggered |
 | **TRIGGERED** | Trigger received (MQTT command or timer). | Immediate transition |
 | **ROLLING** | Motor running at randomized RPM, dice tumbling. | Random 3–5s (configurable) |
 | **SETTLING** | Motor commanded to park position. Polls until arrived or timeout. Waits for dice to stop moving. | Poll timeout (5s) + settling wait (2s) |
@@ -190,7 +198,7 @@ MQTT was chosen over HTTP or WebSockets because the pub/sub model is a natural f
 | Setting | Value |
 |---------|-------|
 | Broker | Configurable (Mosquitto) |
-| Client ID | `bubble-craps-{device_id}` |
+| Client ID | From config (e.g., `bubble-craps-01`) — also used as `device_id` in payloads |
 | Clean session | `true` |
 | Keepalive | 60s |
 | Auto-reconnect | Yes, with exponential backoff |
@@ -221,6 +229,7 @@ Published after every roll attempt — successful or not.
   "roll_status": "ok",
   "roll_status_reason": null,
   "attempts": [{"capture": "ok", "detect": "ok"}],
+  "motor_temp_c": 42,
   "timestamp": "2026-05-29T14:30:00.000Z",
   "device_id": "bubble-craps-01"
 }
@@ -235,6 +244,7 @@ On detection failure, `die1`/`die2`/`total` are `null` and `roll_status` is `"de
 | `roll_status` | `"ok"` or `"detection_failed"` |
 | `roll_status_reason` | null on success, human-readable detail on failure |
 | `attempts` | List of `{capture, detect}` per attempt. Rising attempt counts signal CV health degradation. |
+| `motor_temp_c` | Motor temperature in Celsius after rolling, null if unavailable |
 
 ### 6.4 Roll Image
 
@@ -311,7 +321,7 @@ Possible reasons: `"mechanism_failure"`, `"camera_failure"`, `"repeated_unexpect
 
 ## 8. Configuration
 
-All configuration loaded from `config.yaml`. Runtime changes via MQTT command (trigger mode, timer interval) are written back to `config.yaml` and persist across reboots.
+All configuration loaded from `config.yaml`. Runtime changes via MQTT command (trigger mode, timer interval) are in-memory only and revert to `config.yaml` defaults on reboot.
 
 See `config.yaml` for the full schema and current values.
 
