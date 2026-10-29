@@ -165,6 +165,7 @@ class RollSupervisor:
             logger.exception("Unexpected error during roll %s", roll_id)
             self._handle_unexpected_failure()
             return
+        finally:
             self._reset_timer()
 
         # If not ok, try recapture once (works for both detection_failed and camera_failure)
