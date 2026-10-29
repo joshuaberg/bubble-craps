@@ -192,6 +192,8 @@ class RollSupervisor:
             self._consecutive_unexpected_failures = 0
             self._consecutive_detection_failures = 0
             self._publish_result(outcome, attempts, "ok")
+            self._sm.transition(State.IDLE)
+            self._publish_status()
             return
 
         if outcome.status == "mechanism_failure":
@@ -207,6 +209,8 @@ class RollSupervisor:
         if outcome.status == "detection_failed":
             # Publish the null result
             self._publish_result(outcome, attempts, "detection_failed")
+            self._sm.transition(State.IDLE)
+            self._publish_status()
 
             self._consecutive_detection_failures += 1
             if self._consecutive_detection_failures >= _MAX_CONSECUTIVE_DETECTION_FAILURES:
