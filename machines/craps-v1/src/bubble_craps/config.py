@@ -45,7 +45,7 @@ class CameraConfig:
 class RingLightConfig:
     gpio_pin: int = 13
     num_leds: int = 24
-    idle_brightness: float = 0.3
+    idle_brightness: float = 0.05
 
 
 @dataclass
@@ -86,12 +86,12 @@ class DetectionConfig:
     position_tolerance_px: int = 20
     roi_center_x: int = 0       # 0 = auto (image center)
     roi_center_y: int = 0       # 0 = auto (image center)
-    roi_radius: int = 0         # 0 = no ROI mask
+    roi_radius: int = 650       # ROI circle radius in pixels
     die_size_px: int = 305      # approximate die face width in camera image pixels
     pip_diameter_warped_px: int = 25  # pip diameter in the 200px perspective-corrected die image
     # Pipeline tuning — adjust if detection is unreliable
-    threshold: int = 230
-    morph_kernel: int = 15
+    threshold: int = 160
+    morph_kernel: int = 7
     die_area_tolerance_low: float = 0.85
     die_area_tolerance_high: float = 1.1
     pip_area_tolerance_low: float = 0.6
