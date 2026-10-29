@@ -277,13 +277,13 @@ class RollSupervisor:
         if mode not in ("timer", "remote"):
             logger.warning("Invalid mode: %s", mode)
             return
-        self._config.trigger.mode = mode
         if mode == "timer" and "interval_sec" in kwargs:
             interval = kwargs["interval_sec"]
             if not isinstance(interval, (int, float)) or interval < _MIN_TIMER_INTERVAL_SEC:
                 logger.warning("Rejected interval_sec=%s (minimum %ds)", interval, _MIN_TIMER_INTERVAL_SEC)
                 return
             self._config.trigger.timer_interval_sec = int(interval)
+        self._config.trigger.mode = mode
         logger.info("Trigger mode changed to: %s", mode)
         self._roll_immediately()
         self._publish_status()
