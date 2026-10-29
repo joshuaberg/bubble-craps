@@ -5,17 +5,17 @@ A physical dice-rolling machine and server platform for playing craps.
 ## Project Structure
 
 ```
-machines/craps/    Raspberry Pi dice-rolling machine (motor, camera, CV, MQTT publisher)
+machines/craps-v1/    Raspberry Pi dice-rolling machine (motor, camera, CV, MQTT publisher)
 server/            Server-side services (broker, database bridge, game server, dashboard)
 ```
 
 ## Machines
 
-### Craps Machine (`machines/craps/`)
+### Craps Machine (`machines/craps-v1/`)
 
 A Raspberry Pi Zero 2W that physically rolls two dice via a crankshaft mechanism, captures an image, detects pip counts using OpenCV, and publishes results over MQTT.
 
-See [machines/craps/ARCHITECTURE.md](machines/craps/ARCHITECTURE.md) for the full spec and [machines/craps/deploy/DEPLOY.txt](machines/craps/deploy/DEPLOY.txt) for setup instructions.
+See [machines/craps-v1/ARCHITECTURE.md](machines/craps-v1/ARCHITECTURE.md) for the full spec and [machines/craps-v1/deploy/DEPLOY.txt](machines/craps-v1/deploy/DEPLOY.txt) for setup instructions.
 
 ## Server
 

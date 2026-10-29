@@ -13,7 +13,7 @@ First-time setup
      git clone https://github.com/joshuaberg/bubble-craps.git
 
 2. Create a virtual environment:
-     cd ~/bubble-craps/machines/craps
+     cd ~/bubble-craps/machines/craps-v1
      python3 -m venv venv
 
 3. Install dependencies:
@@ -24,7 +24,7 @@ First-time setup
      sudo ip link set can0 up type can bitrate 1000000
 
 5. Install the systemd service:
-     sudo cp machines/craps/deploy/bubble-craps.service /etc/systemd/system/
+     sudo cp machines/craps-v1/deploy/bubble-craps.service /etc/systemd/system/
      sudo systemctl daemon-reload
      sudo systemctl enable bubble-craps
 
@@ -55,7 +55,7 @@ All logs:   journalctl -u bubble-craps
 Manual testing (service must be stopped first)
 ----------------------------------------------
   sudo systemctl stop bubble-craps
-  cd ~/bubble-craps/machines/craps
+  cd ~/bubble-craps/machines/craps-v1
   source venv/bin/activate
   sudo venv/bin/python scripts/demo.py --count 3 --save-images
   sudo venv/bin/python scripts/calibrate.py
