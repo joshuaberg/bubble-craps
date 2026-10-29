@@ -15,9 +15,10 @@ logger = logging.getLogger(__name__)
 class MqttClient:
     """MQTT client for publishing results/status and receiving commands."""
 
-    def __init__(self, config: MqttConfig, on_command=None):
+    def __init__(self, config: MqttConfig, on_command=None, on_reconnect=None):
         self.config = config
         self._on_command = on_command
+        self._on_reconnect = on_reconnect
         self._connected = False
 
         # Offline roll queue
@@ -103,6 +104,8 @@ class MqttClient:
             self._connected = True
             client.subscribe(self.config.topic_command, qos=1)
             self._flush_queue()
+            if self._on_reconnect:
+                self._on_reconnect()
         else:
             logger.error("MQTT connection failed with code %d", rc)
 

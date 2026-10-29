@@ -44,8 +44,12 @@ def main() -> None:
     camera = PiCamera(config.camera)
     detector = DiceDetector(config.detection)
 
-    # MQTT client — command handler wired after supervisor is created
-    mqtt_client = MqttClient(config.mqtt, on_command=lambda p: handle_command(p))
+    # MQTT client — command handler and reconnect handler wired after supervisor is created
+    mqtt_client = MqttClient(
+        config.mqtt,
+        on_command=lambda p: handle_command(p),
+        on_reconnect=lambda: supervisor._publish_status(),
+    )
 
     # Roll supervisor — owns status, timer, retry policy, command queue
     supervisor = RollSupervisor(config, state_machine=None, mqtt_client=mqtt_client)
