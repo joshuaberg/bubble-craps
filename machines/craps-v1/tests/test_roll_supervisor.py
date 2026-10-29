@@ -276,6 +276,41 @@ class TestErrorState:
         supervisor._sm.transition.assert_called_with(State.IDLE)
 
 
+class TestTimerReset:
+
+    def test_timer_reset_after_successful_roll(self, supervisor):
+        supervisor._config.trigger.mode = "timer"
+        supervisor._config.trigger.timer_interval_sec = 60
+        supervisor._sm.run_roll.return_value = _ok_outcome()
+
+        supervisor._execute_roll()
+
+        assert supervisor._next_timer_roll is not None
+        # Timer should be set ~60s in the future, not in the past
+        assert supervisor._next_timer_roll > time.monotonic() + 30
+
+    def test_timer_reset_after_failed_roll(self, supervisor):
+        supervisor._config.trigger.mode = "timer"
+        supervisor._config.trigger.timer_interval_sec = 60
+        supervisor._sm.run_roll.return_value = _detection_failed_outcome()
+        supervisor._sm.retry_capture.return_value = _detection_failed_outcome()
+
+        supervisor._execute_roll()
+
+        assert supervisor._next_timer_roll is not None
+        assert supervisor._next_timer_roll > time.monotonic() + 30
+
+    def test_timer_reset_after_exception(self, supervisor):
+        supervisor._config.trigger.mode = "timer"
+        supervisor._config.trigger.timer_interval_sec = 60
+        supervisor._sm.run_roll.side_effect = RuntimeError("boom")
+
+        supervisor._execute_roll()
+
+        assert supervisor._next_timer_roll is not None
+        assert supervisor._next_timer_roll > time.monotonic() + 30
+
+
 class TestSetMode:
 
     def test_valid_mode_change(self, supervisor):
