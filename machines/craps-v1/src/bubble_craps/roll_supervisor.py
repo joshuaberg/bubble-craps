@@ -191,12 +191,13 @@ class RollSupervisor:
             return
 
         if outcome.status == "mechanism_failure":
-            self._publish_image(outcome)
+            self._publish_result(outcome, attempts, "mechanism_failure")
             self._enter_error("mechanism_failure")
             return
 
         if outcome.status == "camera_failure":
             # Camera failed on initial AND retry — genuinely broken
+            self._publish_result(outcome, attempts, "camera_failure")
             self._enter_error("camera_failure")
             return
 
@@ -287,13 +288,16 @@ class RollSupervisor:
 
         if outcome.result is not None:
             self._last_roll_id = outcome.roll_id
+            reason = None
+            if final_status == "mechanism_failure":
+                reason = "Dice did not move — same pips and positions as previous roll"
             roll_result = {
                 "roll_id": outcome.roll_id,
                 "die1": outcome.result["die1"],
                 "die2": outcome.result["die2"],
                 "total": outcome.result["die1"] + outcome.result["die2"],
                 "roll_status": final_status,
-                "roll_status_reason": None,
+                "roll_status_reason": reason,
                 "attempts": [{"capture": a.capture, "detect": a.detect} for a in attempts],
                 "motor_temp_c": outcome.motor_temp_c,
                 "timestamp": timestamp,
@@ -306,7 +310,7 @@ class RollSupervisor:
                 "die2": None,
                 "total": None,
                 "roll_status": final_status,
-                "roll_status_reason": "Could not detect exactly 2 dice",
+                "roll_status_reason": "Camera hardware failure" if final_status == "camera_failure" else "Could not detect exactly 2 dice",
                 "attempts": [{"capture": a.capture, "detect": a.detect} for a in attempts],
                 "motor_temp_c": outcome.motor_temp_c,
                 "timestamp": timestamp,
@@ -314,11 +318,6 @@ class RollSupervisor:
             }
 
         self._mqtt.publish_result(roll_result)
-        if outcome.image_bytes:
-            self._mqtt.publish_image(outcome.image_bytes, outcome.roll_id)
-
-    def _publish_image(self, outcome: RollOutcome) -> None:
-        """Publish just the image (e.g. mechanism failure evidence)."""
         if outcome.image_bytes:
             self._mqtt.publish_image(outcome.image_bytes, outcome.roll_id)
 

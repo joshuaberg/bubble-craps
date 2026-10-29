@@ -174,7 +174,7 @@ class TestCameraFailure:
         assert len(fake_mqtt.results) == 1
         assert fake_mqtt.results[0]["roll_status"] == "ok"
 
-    def test_both_fail_enters_error(self, supervisor):
+    def test_both_fail_enters_error(self, supervisor, fake_mqtt):
         supervisor._sm.run_roll.return_value = _camera_failure_outcome()
         supervisor._sm.retry_capture.return_value = _camera_failure_outcome()
 
@@ -182,6 +182,9 @@ class TestCameraFailure:
 
         assert supervisor._error is True
         assert supervisor._error_reason == "camera_failure"
+        assert len(fake_mqtt.results) == 1
+        assert fake_mqtt.results[0]["roll_status"] == "camera_failure"
+        assert fake_mqtt.results[0]["die1"] is None
 
     def test_retry_returns_detection_failed(self, supervisor, fake_mqtt):
         """Camera works on retry but detection fails — publish null, not ERROR."""
@@ -205,14 +208,16 @@ class TestMechanismFailure:
         assert supervisor._error is True
         assert supervisor._error_reason == "mechanism_failure"
 
-    def test_publishes_image_for_evidence(self, supervisor, fake_mqtt):
+    def test_publishes_result_and_image(self, supervisor, fake_mqtt):
         supervisor._sm.run_roll.return_value = _mechanism_failure_outcome()
 
         supervisor._execute_roll()
 
         assert len(fake_mqtt.images) == 1
-        # No roll result published for mechanism failure
-        assert len(fake_mqtt.results) == 0
+        assert len(fake_mqtt.results) == 1
+        assert fake_mqtt.results[0]["roll_status"] == "mechanism_failure"
+        assert fake_mqtt.results[0]["die1"] == 3
+        assert fake_mqtt.results[0]["die2"] == 5
 
 
 class TestUnexpectedFailure:
