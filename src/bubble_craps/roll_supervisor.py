@@ -55,7 +55,7 @@ class RollSupervisor:
 
     def start(self) -> None:
         """Start the supervisor worker thread."""
-        self._reset_timer()
+        self._roll_immediately()
         self._thread.start()
         logger.info("Roll supervisor started")
 
@@ -98,6 +98,11 @@ class RollSupervisor:
             self._next_timer_roll = time.monotonic() + self._config.trigger.timer_interval_sec
         else:
             self._next_timer_roll = None
+
+    def _roll_immediately(self) -> None:
+        """Set the next timer roll to now, triggering an immediate roll."""
+        if self._config.trigger.mode == "timer":
+            self._next_timer_roll = time.monotonic()
 
     def _time_until_next_roll(self) -> float:
         if self._next_timer_roll is None:
@@ -273,7 +278,7 @@ class RollSupervisor:
                 return
             self._config.trigger.timer_interval_sec = int(interval)
         logger.info("Trigger mode changed to: %s", mode)
-        self._reset_timer()
+        self._roll_immediately()
         self._publish_status()
 
     # -- Publishing --------------------------------------------------------
