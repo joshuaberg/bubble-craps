@@ -133,7 +133,7 @@ IDLE ──► TRIGGERED ──► ROLLING ──► SETTLING ──► CAPTURE 
 | **IDLE** | Waiting for a trigger. Motor off. Ring light at idle brightness. | Until triggered |
 | **TRIGGERED** | Trigger received (MQTT command or timer). | Immediate transition |
 | **ROLLING** | Motor running at randomized RPM, dice tumbling. | Random 3–5s (configurable) |
-| **SETTLING** | Motor commanded to park position. Polls until arrived or timeout. Waits for dice to stop moving. | Poll timeout (5s) + settling wait (2s) |
+| **SETTLING** | Motor commanded to park position. Polls until arrived or timeout. Waits for dice to stop moving. A park timeout is not treated as a failure — the motor occasionally slows near the end of travel, which may cause one failed detection but is not a persistent problem. If the mechanism is actually broken, the integrity check on the next roll will catch it. | Poll timeout (5s) + settling wait (2s) |
 | **CAPTURE** | Ring light full brightness. Camera captures image. | < 1s |
 | **ANALYZE** | OpenCV pipeline processes image. Integrity check against previous roll. | < 2s |
 | **ERROR** | System halted. Ring light solid red. Set by the supervisor, not the state machine. | Until cleared |
