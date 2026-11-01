@@ -143,16 +143,20 @@ def on_connect(client, userdata, flags, rc):
 
 
 def on_message(client, userdata, msg):
-    global db_conn
+    try:
+        topic_parts = msg.topic.split("/")
+        # bubble-craps/{device_id}/roll/result
+        # bubble-craps/{device_id}/roll/image/{roll_id}
 
-    topic_parts = msg.topic.split("/")
-    # bubble-craps/{device_id}/roll/result
-    # bubble-craps/{device_id}/roll/image/{roll_id}
+        if len(topic_parts) == 4 and topic_parts[3] == "result":
+            handle_result(msg)
+        elif len(topic_parts) == 5 and topic_parts[3] == "image":
+            handle_image(msg, topic_parts[4])
+    except Exception:
+        logger.exception("Unhandled error processing message on %s", msg.topic)
 
-    if len(topic_parts) == 4 and topic_parts[3] == "result":
-        handle_result(msg)
-    elif len(topic_parts) == 5 and topic_parts[3] == "image":
-        handle_image(msg, topic_parts[4])
+
+REQUIRED_RESULT_FIELDS = ("roll_id", "device_id", "roll_status", "timestamp")
 
 
 def handle_result(msg):
@@ -164,10 +168,16 @@ def handle_result(msg):
         logger.error("Invalid roll result payload on %s", msg.topic)
         return
 
-    roll_id = result.get("roll_id")
-    if not roll_id:
-        logger.error("Roll result missing roll_id")
+    if not isinstance(result, dict):
+        logger.error("Roll result is not a JSON object on %s", msg.topic)
         return
+
+    missing = [f for f in REQUIRED_RESULT_FIELDS if f not in result]
+    if missing:
+        logger.error("Roll result missing required fields %s on %s", missing, msg.topic)
+        return
+
+    roll_id = result["roll_id"]
 
     # Track status for when the image arrives
     _roll_statuses[roll_id] = result.get("roll_status", "unknown")
