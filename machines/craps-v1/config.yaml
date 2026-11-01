@@ -41,9 +41,6 @@ mqtt:
   port: 1883
   client_id: "bubble-craps-01"
   keepalive: 60
-  offline_queue:
-    max_size: 100
-    persist_file: "pending_rolls.json"
 
 # Detection settings
 detection:

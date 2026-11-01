@@ -5,7 +5,7 @@ import numpy as np
 
 from bubble_craps.config import (
     AppConfig, TriggerConfig, MotorConfig, CameraConfig,
-    RingLightConfig, MqttConfig, DetectionConfig, OfflineQueueConfig,
+    RingLightConfig, MqttConfig, DetectionConfig,
 )
 from bubble_craps.motor import MotorStatus
 
@@ -165,7 +165,7 @@ def test_config():
         ),
         camera=CameraConfig(),
         ring_light=RingLightConfig(),
-        mqtt=MqttConfig(offline_queue=OfflineQueueConfig()),
+        mqtt=MqttConfig(),
         detection=DetectionConfig(),
     )
 

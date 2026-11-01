@@ -4,7 +4,7 @@ import pytest
 import time
 from unittest.mock import MagicMock, patch
 
-from bubble_craps.config import AppConfig, TriggerConfig, MqttConfig, OfflineQueueConfig
+from bubble_craps.config import AppConfig, TriggerConfig, MqttConfig
 from bubble_craps.motor import MotorError
 from bubble_craps.roll_supervisor import RollSupervisor
 from bubble_craps.state_machine import CaptureAttempt, RollOutcome, State

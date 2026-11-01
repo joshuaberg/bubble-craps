@@ -49,18 +49,11 @@ class RingLightConfig:
 
 
 @dataclass
-class OfflineQueueConfig:
-    max_size: int = 100
-    persist_file: str = "pending_rolls.json"
-
-
-@dataclass
 class MqttConfig:
     broker: str = "192.168.1.100"
     port: int = 1883
     client_id: str = "bubble-craps-01"
     keepalive: int = 60
-    offline_queue: OfflineQueueConfig = field(default_factory=OfflineQueueConfig)
 
     @property
     def topic_result(self) -> str:
@@ -137,12 +130,8 @@ def load_config(path: Path | None = None) -> AppConfig:
     config_dir = config_path.resolve().parent
 
     mqtt_raw = raw.get("mqtt", {})
-    offline_queue = OfflineQueueConfig(**mqtt_raw.pop("offline_queue", {}))
-    # Resolve relative persist_file path against config directory
-    persist_path = Path(offline_queue.persist_file)
-    if not persist_path.is_absolute():
-        offline_queue.persist_file = str(config_dir / persist_path)
-    mqtt = MqttConfig(**mqtt_raw, offline_queue=offline_queue)
+    mqtt_raw.pop("offline_queue", None)  # ignore legacy config if present
+    mqtt = MqttConfig(**mqtt_raw)
 
     detection = DetectionConfig(**raw.get("detection", {}))
     # Resolve relative calibration_file path against config directory

@@ -1,9 +1,6 @@
 import json
 import logging
-import threading
-from collections import deque
 from datetime import datetime, timezone
-from pathlib import Path
 
 import paho.mqtt.client as mqtt
 
@@ -20,12 +17,6 @@ class MqttClient:
         self._on_command = on_command
         self._on_reconnect = on_reconnect
         self._connected = False
-
-        # Offline roll queue
-        self._queue: deque[dict] = deque(maxlen=config.offline_queue.max_size)
-        self._queue_lock = threading.Lock()
-        self._persist_path = Path(config.offline_queue.persist_file)
-        self._load_queue()
 
         # Set up MQTT client
         self._client = mqtt.Client(
@@ -57,7 +48,6 @@ class MqttClient:
 
     def disconnect(self) -> None:
         """Disconnect from the MQTT broker, publishing OFFLINE status first."""
-        self._persist_queue()
         # Publish retained OFFLINE status before disconnecting so subscribers
         # see OFFLINE on graceful shutdown, not just unexpected disconnects (LWT).
         offline_payload = json.dumps({
@@ -71,22 +61,20 @@ class MqttClient:
         logger.info("Disconnected from MQTT broker")
 
     def publish_result(self, result: dict) -> None:
-        """Publish a roll result. Queues locally if disconnected."""
+        """Publish a roll result. Fire-and-forget — dropped if disconnected."""
         if self._connected:
-            self._flush_queue()
             self._publish(self.config.topic_result, result, qos=1, retain=False)
         else:
-            logger.warning("MQTT disconnected, queuing roll result")
-            with self._queue_lock:
-                self._queue.append(result)
-            self._persist_queue()
+            logger.warning("MQTT disconnected, dropping roll result %s", result.get("roll_id"))
 
     def publish_image(self, image_bytes: bytes, roll_id: str) -> None:
-        """Publish a roll image as raw JPEG bytes. Best-effort — not queued offline."""
+        """Publish a roll image as raw JPEG bytes. Fire-and-forget — dropped if disconnected."""
         if self._connected:
             topic = self.config.topic_image(roll_id)
             self._client.publish(topic, image_bytes, qos=1, retain=False)
             logger.debug("Published image (%d bytes) to %s", len(image_bytes), topic)
+        else:
+            logger.warning("MQTT disconnected, dropping roll image %s", roll_id)
 
     def publish_status(self, status: dict) -> None:
         """Publish machine status (retained)."""
@@ -103,7 +91,6 @@ class MqttClient:
             logger.info("Connected to MQTT broker")
             self._connected = True
             client.subscribe(self.config.topic_command, qos=1)
-            self._flush_queue()
             if self._on_reconnect:
                 self._on_reconnect()
         else:
@@ -122,33 +109,3 @@ class MqttClient:
                 self._on_command(payload)
         except json.JSONDecodeError:
             logger.error("Invalid JSON on command topic: %s", msg.payload)
-
-    def _flush_queue(self) -> None:
-        """Publish all queued roll results in order."""
-        with self._queue_lock:
-            while self._queue:
-                result = self._queue.popleft()
-                self._publish(self.config.topic_result, result, qos=1, retain=False)
-                logger.info("Flushed queued roll: %s", result.get("roll_id"))
-        self._persist_queue()
-
-    def _persist_queue(self) -> None:
-        """Save the current queue to disk."""
-        with self._queue_lock:
-            data = list(self._queue)
-        try:
-            self._persist_path.write_text(json.dumps(data))
-        except OSError:
-            logger.error("Failed to persist offline queue to %s", self._persist_path)
-
-    def _load_queue(self) -> None:
-        """Load any previously persisted queue from disk."""
-        if not self._persist_path.exists():
-            return
-        try:
-            data = json.loads(self._persist_path.read_text())
-            for item in data:
-                self._queue.append(item)
-            logger.info("Loaded %d queued rolls from disk", len(data))
-        except (json.JSONDecodeError, OSError):
-            logger.error("Failed to load offline queue from %s", self._persist_path)
