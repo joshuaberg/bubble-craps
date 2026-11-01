@@ -10,6 +10,41 @@ services:
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
 
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: bubble_craps
+      POSTGRES_USER: bubble_craps
+      POSTGRES_PASSWORD: bubble_craps
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  bridge:
+    build: ./bridge
+    container_name: bridge
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+      - postgres
+    environment:
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: "1883"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: bubble_craps
+      DB_USER: bubble_craps
+      DB_PASSWORD: bubble_craps
+      IMAGE_MAX_COUNT: "300"
+    volumes:
+      - ./images/ok:/images/ok
+      - ./images/failed:/images/failed
+
 volumes:
   mosquitto-data:
   mosquitto-log:
+  postgres-data:
