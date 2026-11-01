@@ -283,13 +283,11 @@ On unexpected disconnect, the broker publishes the LWT, overwriting the retained
 
 `clear_error` returns the machine from ERROR to IDLE. Power reset has the same effect.
 
-### 6.7 Offline Roll Queue
+### 6.7 Offline Behavior
 
-In timer mode, the machine keeps rolling even if the broker is unreachable. Results are queued in memory, backed by periodic flush to disk (`pending_rolls.json`), and published in order when the connection is restored. Timestamps reflect the actual capture time, not the publish time.
+The machine is fire-and-forget. It publishes roll results and images to the broker. If the broker is unreachable, the publish fails silently and the roll is lost. There is no offline queue.
 
-Images are **not** queued — only roll results are persisted offline. The queue has a configurable max size (default 100); oldest rolls are dropped if full.
-
-Not applicable in remote mode — the broker must be up to receive roll commands.
+In timer mode, the machine keeps rolling regardless of broker connectivity — the physical dice still need to tumble for randomness. Results from rolls during an outage are simply not recorded. This is acceptable: the broker runs on the same LAN and outages are rare and short. Downstream consumers (SQL bridge, game server) only see rolls that make it to the broker.
 
 ---
 
