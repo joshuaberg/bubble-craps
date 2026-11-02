@@ -80,13 +80,22 @@ def insert_roll(conn, result):
     logger.info("Inserted roll %s (status=%s)", result["roll_id"], result["roll_status"])
 
 
+def get_roll_status(conn, roll_id):
+    """Look up a roll's status from the database. Returns None if not found."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT roll_status FROM rolls WHERE roll_id = %s", (roll_id,))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+
 def update_image_path(conn, roll_id, image_path):
-    """Set the image_path for an existing roll."""
+    """Set the image_path for an existing roll. Returns True if the row existed."""
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE rolls SET image_path = %s WHERE roll_id = %s",
             (str(image_path), roll_id),
         )
+        return cur.rowcount > 0
 
 
 # -- Image storage -------------------------------------------------------------
@@ -125,9 +134,6 @@ def prune_images(directory):
 
 
 # -- MQTT callbacks ------------------------------------------------------------
-
-# Track roll statuses so we know where to save images when they arrive
-_roll_statuses = {}
 
 db_conn = None
 
@@ -179,9 +185,6 @@ def handle_result(msg):
 
     roll_id = result["roll_id"]
 
-    # Track status for when the image arrives
-    _roll_statuses[roll_id] = result.get("roll_status", "unknown")
-
     try:
         insert_roll(db_conn, result)
     except psycopg2.Error:
@@ -201,12 +204,26 @@ def handle_image(msg, roll_id):
         logger.warning("Empty image payload for roll %s", roll_id)
         return
 
-    roll_status = _roll_statuses.pop(roll_id, "unknown")
+    # Look up status from the database — the source of truth
+    try:
+        roll_status = get_roll_status(db_conn, roll_id)
+    except psycopg2.Error:
+        logger.exception("Failed to look up roll status for %s", roll_id)
+        db_conn = connect_db()
+        roll_status = None
+
+    if roll_status is None:
+        # Result hasn't arrived yet or insert failed — save to failed/ as safe default
+        logger.warning("No roll record for image %s, saving to failed/", roll_id)
+        roll_status = "unknown"
+
     path, pruned = save_image(roll_id, image_bytes, roll_status)
 
-    # Update image_path in DB
+    # Update image_path in DB (may match zero rows if result hasn't arrived)
     try:
-        update_image_path(db_conn, roll_id, path)
+        updated = update_image_path(db_conn, roll_id, path)
+        if not updated:
+            logger.warning("No roll row to update image_path for %s", roll_id)
     except psycopg2.Error:
         logger.exception("Failed to update image_path for roll %s", roll_id)
         db_conn = connect_db()
