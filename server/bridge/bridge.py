@@ -128,6 +128,7 @@ def insert_roll(conn, result):
             ),
         )
     logger.info("Inserted roll %s (status=%s)", result["roll_id"], result["roll_status"])
+    return True
 
 
 def get_roll_status(conn, roll_id):
