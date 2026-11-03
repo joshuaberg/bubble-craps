@@ -1,0 +1,113 @@
+Bubble Craps Server — Deployment Guide
+=======================================
+
+Connect to the server
+---------------------
+  ssh <user>@<server-ip>
+
+
+First-time setup
+----------------
+1. Clone the repo (if not already there):
+     cd /opt
+     sudo git clone https://github.com/joshuaberg/bubble-craps.git
+     sudo chown -R $USER:$USER /opt/bubble-craps
+
+2. Start all services:
+     cd /opt/bubble-craps/server
+     docker compose up -d --build
+
+   This will:
+   - Start Mosquitto (MQTT broker)
+   - Start Postgres (creates tables automatically on first run)
+   - Build and start the SQL bridge
+
+3. Verify everything is running:
+     docker compose ps
+
+4. Check bridge logs:
+     docker compose logs -f bridge
+
+
+Updating code
+-------------
+On your Mac: commit and push to main.
+
+On the server:
+  cd /opt/bubble-craps
+  git pull origin main
+  cd server
+  docker compose up -d --build
+
+The --build flag rebuilds the bridge container if its code changed.
+Mosquitto and Postgres won't restart unless their config changed.
+
+
+Common commands
+---------------
+Start all:          docker compose up -d
+Stop all:           docker compose down
+Restart all:        docker compose restart
+Restart one:        docker compose restart bridge
+Rebuild + start:    docker compose up -d --build
+Status:             docker compose ps
+Bridge logs:        docker compose logs -f bridge
+Postgres logs:      docker compose logs -f postgres
+Mosquitto logs:     docker compose logs -f mosquitto
+All logs:           docker compose logs -f
+
+
+Checking the database
+---------------------
+Query recent rolls:
+  docker exec postgres psql -U bubble_craps -c \
+    "SELECT roll_id, die1, die2, total, roll_status, image_path FROM rolls ORDER BY timestamp DESC LIMIT 10;"
+
+Count rolls:
+  docker exec postgres psql -U bubble_craps -c \
+    "SELECT count(*) FROM rolls;"
+
+Roll distribution:
+  docker exec postgres psql -U bubble_craps -c \
+    "SELECT total, count(*) FROM rolls WHERE roll_status = 'ok' GROUP BY total ORDER BY total;"
+
+Interactive SQL shell:
+  docker exec -it postgres psql -U bubble_craps
+
+
+Backing up the database
+-----------------------
+Dump to a SQL file:
+  docker exec postgres pg_dump -U bubble_craps bubble_craps > backup.sql
+
+Restore from a dump:
+  cat backup.sql | docker exec -i postgres psql -U bubble_craps
+
+
+Images
+------
+Images are stored on the host at:
+  /opt/bubble-craps/server/images/ok/       (successful detections)
+  /opt/bubble-craps/server/images/failed/   (detection failures)
+
+Each folder is capped at 300 images. Oldest are pruned automatically.
+
+
+Monitoring MQTT (from any machine on the network)
+-------------------------------------------------
+Subscribe to all topics:
+  mosquitto_sub -h <server-ip> -t "bubble-craps/#" -v
+
+Send a roll command:
+  mosquitto_pub -h <server-ip> -t "bubble-craps/bubble-craps-01/command" -m '{"action": "roll"}'
+
+
+Wiping and starting fresh
+-------------------------
+Stop everything and delete all data (database, images, broker data):
+  cd /opt/bubble-craps/server
+  docker compose down -v
+  rm -rf images/
+
+Then start again:
+  docker compose up -d --build
