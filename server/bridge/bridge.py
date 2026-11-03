@@ -35,8 +35,9 @@ IMAGE_MAX_COUNT = int(os.environ.get("IMAGE_MAX_COUNT", "300"))
 
 # -- Database ------------------------------------------------------------------
 
-def connect_db():
-    """Connect to Postgres with retries (waits for container to be ready)."""
+def connect_db_startup():
+    """Connect to Postgres with retries at startup (waits for container to be ready).
+    Only called once before the MQTT loop starts. Safe to block here."""
     for attempt in range(30):
         try:
             conn = psycopg2.connect(
@@ -51,6 +52,55 @@ def connect_db():
             time.sleep(2)
     logger.error("Could not connect to Postgres after 30 attempts")
     sys.exit(1)
+
+
+def reconnect_db():
+    """Reconnect to Postgres during operation. Short retry (3 attempts, ~6s)
+    to avoid blocking the MQTT thread for too long."""
+    global db_conn
+    # Close the old connection
+    if db_conn is not None:
+        try:
+            db_conn.close()
+        except Exception:
+            pass
+
+    for attempt in range(3):
+        try:
+            conn = psycopg2.connect(
+                host=DB_HOST, port=DB_PORT,
+                dbname=DB_NAME, user=DB_USER, password=DB_PASSWORD,
+            )
+            conn.autocommit = True
+            logger.info("Reconnected to Postgres")
+            db_conn = conn
+            return True
+        except psycopg2.OperationalError:
+            logger.warning("Postgres reconnect failed (attempt %d/3)", attempt + 1)
+            time.sleep(2)
+
+    logger.error("Could not reconnect to Postgres after 3 attempts")
+    db_conn = None
+    return False
+
+
+def with_db(fn):
+    """Run fn(conn). On connection error, reconnect once and retry.
+    Returns the result of fn, or None if both attempts fail."""
+    global db_conn
+    if db_conn is None:
+        if not reconnect_db():
+            return None
+    try:
+        return fn(db_conn)
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        logger.warning("DB connection lost, reconnecting")
+        if reconnect_db():
+            try:
+                return fn(db_conn)
+            except psycopg2.Error:
+                logger.exception("DB operation failed after reconnect")
+        return None
 
 
 def insert_roll(conn, result):
@@ -185,15 +235,8 @@ def handle_result(msg):
 
     roll_id = result["roll_id"]
 
-    try:
-        insert_roll(db_conn, result)
-    except psycopg2.Error:
-        logger.exception("Failed to insert roll %s, reconnecting to DB", roll_id)
-        db_conn = connect_db()
-        try:
-            insert_roll(db_conn, result)
-        except psycopg2.Error:
-            logger.exception("Failed to insert roll %s after reconnect", roll_id)
+    if with_db(lambda conn: insert_roll(conn, result)) is None:
+        logger.error("Failed to insert roll %s", roll_id)
 
 
 def handle_image(msg, roll_id):
@@ -205,41 +248,35 @@ def handle_image(msg, roll_id):
         return
 
     # Look up status from the database — the source of truth
-    try:
-        roll_status = get_roll_status(db_conn, roll_id)
-    except psycopg2.Error:
-        logger.exception("Failed to look up roll status for %s", roll_id)
-        db_conn = connect_db()
-        roll_status = None
+    roll_status = with_db(lambda conn: get_roll_status(conn, roll_id))
 
     if roll_status is None:
-        # Result hasn't arrived yet or insert failed — save to failed/ as safe default
+        # Result hasn't arrived yet, insert failed, or DB is down
         logger.warning("No roll record for image %s, saving to failed/", roll_id)
         roll_status = "unknown"
 
     path, pruned = save_image(roll_id, image_bytes, roll_status)
 
     # Update image_path in DB (may match zero rows if result hasn't arrived)
-    try:
-        updated = update_image_path(db_conn, roll_id, path)
-        if not updated:
-            logger.warning("No roll row to update image_path for %s", roll_id)
-    except psycopg2.Error:
-        logger.exception("Failed to update image_path for roll %s", roll_id)
-        db_conn = connect_db()
+    updated = with_db(lambda conn: update_image_path(conn, roll_id, path))
+    if updated is None:
+        logger.error("Failed to update image_path for roll %s", roll_id)
+    elif not updated:
+        logger.warning("No roll row to update image_path for %s", roll_id)
 
     # Null out pruned images in DB
     if pruned:
-        try:
-            with db_conn.cursor() as cur:
+        def null_pruned(conn):
+            with conn.cursor() as cur:
                 for pruned_roll_id in pruned:
                     cur.execute(
                         "UPDATE rolls SET image_path = NULL WHERE roll_id = %s",
                         (pruned_roll_id,),
                     )
             logger.info("Nulled image_path for %d pruned rolls", len(pruned))
-        except psycopg2.Error:
-            logger.exception("Failed to null image_path for pruned rolls")
+
+        if with_db(null_pruned) is None:
+            logger.error("Failed to null image_path for pruned rolls")
 
 
 # -- Main ----------------------------------------------------------------------
@@ -249,8 +286,8 @@ def main():
 
     logger.info("Starting SQL Bridge")
 
-    # Connect to Postgres
-    db_conn = connect_db()
+    # Connect to Postgres (blocks until ready, up to 60s)
+    db_conn = connect_db_startup()
 
     # Set up MQTT
     client = mqtt.Client(client_id="sql-bridge", clean_session=True)

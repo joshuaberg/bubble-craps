@@ -88,7 +88,9 @@ Python service (paho-mqtt) that subscribes to MQTT and persists data to PostgreS
 
 Each folder is capped at a configurable max count (default 300). When the limit is reached, the oldest images are deleted and their `image_path` in the rolls table is set to null. The roll data itself is kept forever — only the image file is pruned. Failed images are valuable for understanding detection issues; successful images are useful for debugging and potential future training data.
 
-Images are paired with results by `roll_id`. The bridge receives the result first (knows the status), then the image (knows where to save it).
+Images are paired with results by `roll_id`. The bridge looks up the roll's status from Postgres when an image arrives to determine routing — it does not rely on message ordering.
+
+**Threading model:** Currently, all MQTT message handling and database writes run on paho's single network thread. Database reconnection is limited to ~6 seconds to avoid blocking MQTT. This is sufficient for a low-message-rate home setup. The long-term architecture is to move DB writes to a separate worker thread so the MQTT thread is never blocked — implement this when scaling to multiple machines or higher roll rates.
 
 ### 4.3 Database
 
