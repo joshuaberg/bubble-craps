@@ -92,6 +92,23 @@ Images are stored on the host at:
 
 Each folder is capped at 300 images. Oldest are pruned automatically.
 
+List recent images:
+  ls -lh /opt/bubble-craps/server/images/ok/ | tail -5
+
+Browse images from your Mac (quick temporary web server):
+  On the server:
+    cd /opt/bubble-craps/server/images && python3 -m http.server 8080
+
+  Then open in a browser:
+    http://<server-ip>:8080/ok/
+    http://<server-ip>:8080/failed/
+
+  Ctrl+C on the server to stop serving. Images stay on disk.
+
+Copy all images to your Mac (requires SSH key setup):
+  scp "<user>@<server-ip>:/opt/bubble-craps/server/images/ok/*.jpg" ~/Desktop/
+  scp "<user>@<server-ip>:/opt/bubble-craps/server/images/failed/*.jpg" ~/Desktop/
+
 
 Monitoring MQTT (from any machine on the network)
 -------------------------------------------------
