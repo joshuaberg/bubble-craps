@@ -309,8 +309,8 @@ def main():
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
 
-    # Block forever
-    client.loop_forever()
+    # Block forever — retry_first_connection handles Mosquitto not being ready yet
+    client.loop_forever(retry_first_connection=True)
 
 
 if __name__ == "__main__":
