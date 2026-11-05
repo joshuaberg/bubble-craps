@@ -7,25 +7,36 @@ The server-side platform consumes MQTT messages from one or more Bubble Craps ma
 ## 2. Architecture
 
 ```
-                    ┌──────────────────────────────────────────┐
-                    │              Home Server (Docker)         │
-                    │                                          │
-  Pi(s) ──MQTT──►  │  ┌────────────┐    ┌─────────────────┐   │
-                    │  │ Mosquitto  │───►│   SQL Bridge     │   │
-                    │  │  Broker    │    │  (roll results   │   │
-                    │  │            │    │   → database)    │   │
-                    │  └─────┬──────┘    └────────┬────────┘   │
-                    │        │                    │             │
-                    │        │              ┌─────▼────────┐   │
-                    │        │              │  Database     │   │
-                    │        │              │  (PostgreSQL) │   │
-                    │        │              └─────┬────────┘   │
-                    │        │                    │             │
-                    │  ┌─────▼──────┐    ┌───────▼────────┐   │
-                    │  │  Game      │    │   Dashboard     │   │
-                    │  │  Server    │    │   (Web UI)      │   │
-                    │  └────────────┘    └────────────────┘   │
-                    └──────────────────────────────────────────┘
+                     ┌──────────────────────────────────────────────────────┐
+                     │                Home Server (Docker)                  │
+                     │                                                      │
+   Pi(s) ──MQTT──►   │  ┌────────────┐    ┌─────────────────┐              │
+                     │  │ Mosquitto  │───►│   SQL Bridge     │              │
+                     │  │  Broker    │    │  (rolls → DB)    │              │
+                     │  └────────────┘    └────────┬────────┘              │
+                     │                             │                        │
+                     │                       ┌─────▼────────┐              │
+                     │                       │  PostgreSQL   │              │
+                     │                       │ (bubble_craps)│              │
+                     │                       └──┬────────┬──┘              │
+                     │                          │        │                  │
+                     │  ┌────────────┐    ┌─────▼──┐     │                 │
+                     │  │  Game      │───►│  Game  │     │                 │
+                     │  │  Server    │    │ tables │     │                 │
+                     │  └────────────┘    └────────┘     │                 │
+                     │                                   │                  │
+                     │                        ┌──────────▼─────────┐       │
+                     │                        │     Data API        │       │
+                     │                        │  (read-only JSON)   │       │
+                     │                        └──────────┬─────────┘       │
+                     │                                   │ :8000           │
+                     └───────────────────────────────────┼─────────────────┘
+                                                         │ HTTP
+                                                ┌────────▼─────────┐
+                                                │    Tesserae       │
+                                                │  (renders widgets,│
+                                                │   pushes to panel)│
+                                                └──────────────────┘
 ```
 
 ## 3. Infrastructure
@@ -133,16 +144,42 @@ PostgreSQL, running as a Docker container. Data stored via bind mount (`./data/p
 
 ### 4.4 Game Server
 
-- Subscribes to roll results
-- Implements craps game logic (pass/don't pass, point, come bets, etc.)
-- Publishes game state for display/dashboard consumption
-- Manages game sessions
+Craps game engine — consumes dice rolls from MQTT, manages tables/rounds/bets, publishes game events. Full architecture is in `game/ARCHITECTURE.md` due to the complexity of the command log, rules engine, and bot system.
 
-### 4.5 Dashboard
+### 4.5 Data API
 
-- Web UI for monitoring and analytics
-- Machine status (online/offline/error, last roll, uptime)
-- Roll history and statistics
-- Live roll feed
-- Detection health trends
-- Game session view (when game server is running)
+Read-only REST service (FastAPI) that queries PostgreSQL and returns JSON. Exists so that Tesserae e-ink dashboard widgets (and any future consumer) can fetch data without direct database access. The Data API never writes to the database.
+
+- Build context: `./data-api`
+- Port: 8000
+- Framework: FastAPI (with Uvicorn)
+- Database driver: psycopg2-binary (same as bridge)
+- CORS: enabled (Tesserae runs on a separate Proxmox container)
+
+**Endpoints:**
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/rolls` | Recent rolls, paginated (limit/offset/device_id/status) |
+| `GET /api/rolls/distribution` | Roll total histogram — `GROUP BY total` across all successful rolls (device_id/since) |
+| `GET /api/rolls/stats` | Summary: total/successful/failed counts, success rate, last roll |
+| `GET /api/tables` | List active game tables |
+| `GET /api/tables/{id}` | Full table state: current round, players, active bet count |
+| `GET /api/tables/{id}/bets` | Bets on a table (filterable by status) |
+| `GET /api/players` | All players and balances |
+| `GET /api/players/{id}` | Player detail: balance, recent bets, win/loss stats |
+| `GET /api/health` | DB connection status + which tables exist |
+
+Auto-generated interactive docs available at `http://<server-ip>:8000/docs`.
+
+**Phased rollout:** The game server tables (`tables`, `rounds`, `players`, `bets`, `table_membership`) do not exist yet. Game endpoints check table existence via `information_schema.tables` and return `{"available": false}` instead of errors. The probe result is cached and re-checked on miss, so deploying the game server does not require restarting the Data API.
+
+**Database connection:** Same pattern as the bridge — startup retry loop (30 attempts), fast reconnect on loss (3 attempts), `with_db()` wrapper for auto-reconnect. Synchronous psycopg2 in FastAPI's thread pool — sufficient for the expected load (widgets polling every 30–60 seconds).
+
+### 4.6 Dashboard
+
+The dashboard is a Tesserae e-ink display running on a Seeed Studio reTerminal E1004 (13.3" Spectra 6, 1200x1600, ESP32-S3). Tesserae is hosted as its own Docker instance on a separate Proxmox container — it manages all e-ink panels and dashboards (craps and non-craps).
+
+Custom widget source code for the craps dashboard lives in `dashboard/tesserae/` in this repo. Each widget is a self-contained folder (plugin.json, server.py, client.js) that fetches JSON from the Data API, renders HTML, and gets screenshotted by Tesserae's server-side renderer for delivery to the panel.
+
+Tesserae has no connection to the Mosquitto broker — it only talks to the Data API over HTTP.

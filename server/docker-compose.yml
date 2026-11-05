@@ -44,6 +44,22 @@ services:
       - ./images/ok:/images/ok
       - ./images/failed:/images/failed
 
+  data-api:
+    build: ./data-api
+    container_name: data-api
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: bubble_craps
+      DB_USER: bubble_craps
+      DB_PASSWORD: bubble_craps
+      CORS_ORIGINS: "*"
+
 volumes:
   mosquitto-data:
   mosquitto-log:
