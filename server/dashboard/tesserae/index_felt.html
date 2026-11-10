@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1600, height=1200">
+  <title>Bubble Craps Dashboard — Felt</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Oswald:wght@400;600;700&family=Roboto+Mono:wght@400;700&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      width: 1600px;
+      height: 1200px;
+      background: #D6E8D0;
+      color: #1a1a1a;
+      font-family: "Oswald", "Helvetica Neue", sans-serif;
+      overflow: hidden;
+    }
+
+    .dashboard {
+      display: flex;
+      flex-direction: column;
+      width: 1600px;
+      height: 1200px;
+      background: #D6E8D0;
+    }
+
+    /* -- Header bar -- */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 14px 40px;
+      background: #2A5C2A;
+      border-bottom: 4px solid #E8C523;
+      flex: 0 0 auto;
+    }
+
+    .header-title {
+      font-family: "Playfair Display", serif;
+      font-size: 52px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 14px;
+      color: #E8C523;
+    }
+
+    .header-diamond {
+      color: #D0312D;
+      font-size: 24px;
+      margin: 0 28px;
+    }
+
+    /* -- Top section: 3 columns -- */
+    .top-section {
+      display: flex;
+      flex: 0 0 660px;
+      border-bottom: 3px solid #2A5C2A;
+    }
+
+    .col {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 28px;
+    }
+
+    .col-last-roll {
+      flex: 0 0 420px;
+      border-right: 3px solid #2A5C2A;
+    }
+
+    .col-stats {
+      flex: 0 0 520px;
+      border-right: 3px solid #2A5C2A;
+      align-items: flex-start;
+      justify-content: flex-start;
+      padding: 28px 36px;
+    }
+
+    .col-recent {
+      flex: 1;
+      align-items: stretch;
+      justify-content: flex-start;
+      padding: 20px 28px;
+    }
+
+    /* -- Section titles -- */
+    .section-title {
+      font-family: "Oswald", sans-serif;
+      font-size: 28px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 5px;
+      color: #2A5C2A;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #2A5C2A;
+      width: 100%;
+      text-align: center;
+    }
+
+    .col-stats .section-title {
+      text-align: left;
+    }
+
+    /* -- Last Roll (left column) -- */
+    .dice-container {
+      display: flex;
+      gap: 28px;
+      margin-bottom: 20px;
+      margin-top: 8px;
+    }
+
+    .die {
+      width: 140px;
+      height: 140px;
+      border: 4px solid #1a1a1a;
+      border-radius: 16px;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-rows: 1fr 1fr 1fr;
+      padding: 16px;
+      background: #FFF;
+    }
+
+    .pip {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: #1a1a1a;
+      align-self: center;
+      justify-self: center;
+      display: none;
+    }
+
+    .last-roll-total {
+      font-family: "Playfair Display", serif;
+      font-size: 120px;
+      font-weight: 900;
+      color: #000;
+      margin-top: 8px;
+    }
+
+    .last-roll-total.is-seven {
+      color: #D0312D;
+    }
+
+    .last-roll-time {
+      font-family: "Roboto Mono", monospace;
+      font-size: 22px;
+      color: #555;
+      margin-top: 4px;
+    }
+
+    /* -- Stats (center column) -- */
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      width: 100%;
+      padding: 16px 0;
+      border-bottom: 1px solid #AACCA0;
+    }
+
+    .stat-label {
+      font-size: 30px;
+      font-weight: 400;
+      color: #2A5C2A;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .stat-value {
+      font-family: "Roboto Mono", monospace;
+      font-size: 42px;
+      font-weight: 700;
+      color: #1a1a1a;
+    }
+
+    .stat-value.highlight {
+      color: #D0312D;
+    }
+
+    .stat-value.success {
+      color: #2A5C2A;
+    }
+
+    /* -- Recent Rolls (right column) -- */
+    .recent-header, .recent-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1.2fr 1.6fr;
+      text-align: center;
+      padding: 8px 4px;
+    }
+
+    .recent-header {
+      font-size: 20px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: #2A5C2A;
+      border-bottom: 2px solid #2A5C2A;
+      margin-bottom: 4px;
+      padding-bottom: 10px;
+    }
+
+    .recent-row {
+      font-family: "Roboto Mono", monospace;
+      font-size: 26px;
+      border-bottom: 1px solid #AACCA0;
+      padding: 11px 4px;
+      color: #1a1a1a;
+    }
+
+    .recent-row .total-cell {
+      font-weight: 700;
+      color: #1a1a1a;
+    }
+
+    .recent-row .time-cell {
+      font-size: 20px;
+      color: #555;
+    }
+
+    .recent-row.seven .total-cell {
+      color: #D0312D;
+    }
+
+    .recent-row.null-roll {
+      color: #999;
+      font-style: italic;
+    }
+
+    /* -- Distribution Histogram (bottom) -- */
+    .bottom-section {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 16px 60px 24px;
+    }
+
+    .bottom-section .section-title {
+      margin-bottom: 12px;
+    }
+
+    .histogram {
+      flex: 1;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      gap: 12px;
+      padding-bottom: 40px;
+      position: relative;
+    }
+
+    .bar-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex: 1;
+      max-width: 100px;
+      height: 100%;
+      justify-content: flex-end;
+    }
+
+    .bar {
+      width: 70%;
+      background: #2A5C2A;
+      min-height: 3px;
+      border-radius: 3px 3px 0 0;
+    }
+
+    .bar-count {
+      font-family: "Roboto Mono", monospace;
+      font-size: 20px;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-bottom: 6px;
+    }
+
+    .bar-label {
+      margin-top: 10px;
+      font-size: 24px;
+      font-weight: 700;
+      color: #2A5C2A;
+    }
+
+    /* Seven: red bar */
+    .bar-group.seven .bar {
+      background: #D0312D;
+    }
+    .bar-group.seven .bar-label {
+      color: #D0312D;
+      font-size: 28px;
+    }
+    .bar-group.seven .bar-count {
+      color: #D0312D;
+    }
+  </style>
+</head>
+<body>
+  <div class="dashboard">
+    <div class="header">
+      <span class="header-diamond">&#9830;</span>
+      <span class="header-title">Bubble Craps</span>
+      <span class="header-diamond">&#9830;</span>
+    </div>
+    <div class="top-section">
+      <div class="col col-last-roll">
+        <div class="section-title">Last Roll</div>
+        <div class="dice-container">
+          <div class="die" id="die1"></div>
+          <div class="die" id="die2"></div>
+        </div>
+        <div class="last-roll-total" id="last-roll-total">&mdash;</div>
+        <div class="last-roll-time" id="last-roll-time"></div>
+      </div>
+      <div class="col col-stats">
+        <div class="section-title">Stats</div>
+        <div class="stat-row">
+          <span class="stat-label">Total Rolls</span>
+          <span class="stat-value" id="stat-total">&mdash;</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Successful</span>
+          <span class="stat-value success" id="stat-success">&mdash;</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Null Rolls</span>
+          <span class="stat-value" id="stat-failed">&mdash;</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Rolls Since 7</span>
+          <span class="stat-value highlight" id="stat-since-seven">&mdash;</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Avg Between 7s</span>
+          <span class="stat-value" id="stat-avg-seven">&mdash;</span>
+        </div>
+      </div>
+      <div class="col col-recent">
+        <div class="section-title">Recent Rolls</div>
+        <div class="recent-header">
+          <span>D1</span>
+          <span>D2</span>
+          <span>Total</span>
+          <span>Time</span>
+        </div>
+        <div id="recent-rolls-list"></div>
+      </div>
+    </div>
+    <div class="bottom-section">
+      <div class="section-title">Distribution</div>
+      <div class="histogram" id="histogram"></div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = "http://localhost:8000";
+    const USE_MOCK = true;
+
+    function generateMockData() {
+      const rolls = [];
+      const now = Date.now();
+      for (let i = 0; i < 50; i++) {
+        const die1 = Math.floor(Math.random() * 6) + 1;
+        const die2 = Math.floor(Math.random() * 6) + 1;
+        const isFailed = Math.random() < 0.05;
+        rolls.push({
+          die1: isFailed ? null : die1,
+          die2: isFailed ? null : die2,
+          total: isFailed ? null : die1 + die2,
+          roll_status: isFailed ? "detection_failed" : "ok",
+          timestamp: new Date(now - i * 45000).toISOString(),
+        });
+      }
+      return rolls;
+    }
+
+    function mockDistribution(rolls) {
+      const counts = {};
+      for (let t = 2; t <= 12; t++) counts[t] = 0;
+      rolls.forEach(r => { if (r.total) counts[r.total]++; });
+      return Object.entries(counts).map(([total, count]) => ({ total: parseInt(total), count }));
+    }
+
+    async function fetchRolls() {
+      if (USE_MOCK) return generateMockData();
+      const res = await fetch(`${API_BASE}/api/rolls?limit=50`);
+      const data = await res.json();
+      return data.rolls;
+    }
+
+    async function fetchDistribution() {
+      if (USE_MOCK) return null;
+      const res = await fetch(`${API_BASE}/api/rolls/distribution`);
+      const data = await res.json();
+      return data.distribution;
+    }
+
+    async function fetchStats() {
+      if (USE_MOCK) return null;
+      const res = await fetch(`${API_BASE}/api/rolls/stats`);
+      return await res.json();
+    }
+
+    const PIP_POSITIONS = {
+      1: [[1,1]], 2: [[0,2],[2,0]], 3: [[0,2],[1,1],[2,0]],
+      4: [[0,0],[0,2],[2,0],[2,2]], 5: [[0,0],[0,2],[1,1],[2,0],[2,2]],
+      6: [[0,0],[0,2],[1,0],[1,2],[2,0],[2,2]],
+    };
+
+    function renderDie(containerId, value) {
+      const container = document.getElementById(containerId);
+      container.innerHTML = "";
+      if (!value) {
+        container.style.opacity = "0.3";
+        container.style.background = "#bbb";
+        const q = document.createElement("div");
+        q.style.cssText = "grid-column:1/4;grid-row:1/4;display:flex;align-items:center;justify-content:center;font-size:60px;font-weight:700;color:#888;";
+        q.textContent = "?";
+        container.appendChild(q);
+        return;
+      }
+      container.style.opacity = "1";
+      container.style.background = "#FFF";
+      for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 3; c++) {
+          const pip = document.createElement("div");
+          pip.className = "pip";
+          pip.style.gridRow = r + 1;
+          pip.style.gridColumn = c + 1;
+          pip.style.display = PIP_POSITIONS[value].some(([pr,pc]) => pr===r && pc===c) ? "block" : "none";
+          container.appendChild(pip);
+        }
+      }
+    }
+
+    function computeStats(rolls) {
+      const total = rolls.length;
+      const successful = rolls.filter(r => r.roll_status === "ok").length;
+      const failed = total - successful;
+      let rollsSinceSeven = 0;
+      for (const r of rolls) { if (r.total === 7) break; if (r.roll_status === "ok") rollsSinceSeven++; }
+      const gaps = []; let gap = 0;
+      for (const r of [...rolls].reverse()) {
+        if (r.roll_status !== "ok") continue;
+        if (r.total === 7) { if (gap > 0) gaps.push(gap); gap = 0; } else gap++;
+      }
+      const avgBetweenSevens = gaps.length > 0 ? (gaps.reduce((a,b) => a+b, 0) / gaps.length).toFixed(1) : "\u2014";
+      return { total, successful, failed, rollsSinceSeven, avgBetweenSevens };
+    }
+
+    function renderLastRoll(roll) {
+      renderDie("die1", roll ? roll.die1 : null);
+      renderDie("die2", roll ? roll.die2 : null);
+      const totalEl = document.getElementById("last-roll-total");
+      const timeEl = document.getElementById("last-roll-time");
+      if (roll && roll.total) {
+        totalEl.textContent = roll.total;
+        totalEl.className = "last-roll-total" + (roll.total === 7 ? " is-seven" : "");
+      } else { totalEl.textContent = "\u2014"; totalEl.className = "last-roll-total"; totalEl.style.color = "#999"; }
+      if (roll && roll.timestamp) {
+        const d = new Date(roll.timestamp);
+        timeEl.textContent = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      }
+    }
+
+    function renderStats(stats, apiStats) {
+      document.getElementById("stat-total").textContent = (apiStats || stats).total;
+      document.getElementById("stat-success").textContent = (apiStats || stats).successful || apiStats?.successful_rolls || "\u2014";
+      document.getElementById("stat-failed").textContent = (apiStats || stats).failed || apiStats?.failed_rolls || "\u2014";
+      document.getElementById("stat-since-seven").textContent = stats.rollsSinceSeven;
+      document.getElementById("stat-avg-seven").textContent = stats.avgBetweenSevens;
+    }
+
+    function renderRecentRolls(rolls) {
+      const container = document.getElementById("recent-rolls-list");
+      container.innerHTML = "";
+      rolls.slice(0, 10).forEach(r => {
+        const row = document.createElement("div");
+        row.className = "recent-row";
+        if (r.total === 7) row.classList.add("seven");
+        if (r.roll_status !== "ok") row.classList.add("null-roll");
+        const d1 = document.createElement("span"); d1.textContent = r.die1 ?? "\u2014";
+        const d2 = document.createElement("span"); d2.textContent = r.die2 ?? "\u2014";
+        const total = document.createElement("span"); total.className = "total-cell"; total.textContent = r.total ?? "null";
+        const time = document.createElement("span"); time.className = "time-cell";
+        if (r.timestamp) { const d = new Date(r.timestamp); time.textContent = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+        row.appendChild(d1); row.appendChild(d2); row.appendChild(total); row.appendChild(time);
+        container.appendChild(row);
+      });
+    }
+
+    function renderHistogram(distribution) {
+      const container = document.getElementById("histogram");
+      container.innerHTML = "";
+      const counts = {}; for (let t = 2; t <= 12; t++) counts[t] = 0;
+      distribution.forEach(d => { counts[d.total] = d.count; });
+      const maxCount = Math.max(...Object.values(counts), 1);
+      for (let t = 2; t <= 12; t++) {
+        const group = document.createElement("div"); group.className = "bar-group";
+        if (t === 7) group.classList.add("seven");
+        const countLabel = document.createElement("div"); countLabel.className = "bar-count"; countLabel.textContent = counts[t];
+        const bar = document.createElement("div"); bar.className = "bar"; bar.style.height = `${Math.max((counts[t]/maxCount)*100, 1)}%`;
+        const label = document.createElement("div"); label.className = "bar-label"; label.textContent = t;
+        group.appendChild(countLabel); group.appendChild(bar); group.appendChild(label);
+        container.appendChild(group);
+      }
+    }
+
+    async function update() {
+      try {
+        const rolls = await fetchRolls();
+        const apiStats = await fetchStats();
+        renderLastRoll(rolls[0] || null);
+        renderStats(computeStats(rolls), apiStats);
+        renderRecentRolls(rolls);
+        renderHistogram(USE_MOCK ? mockDistribution(rolls) : await fetchDistribution());
+      } catch (err) { console.error("Dashboard update failed:", err); }
+    }
+    update();
+    setInterval(update, 30000);
+  </script>
+</body>
+</html>
